@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Reservation, TransferLeg, TourLeg, CircuitoLeg } from './types';
 import { CONTACTS, COMPANY_EMAIL, SHEET_NAME, Logo, TOUR_LIST } from './constants';
-import { getWhatsAppLink, generateWhatsAppMessage, downloadAsPDF, downloadAsDataUriPDF, openVoucherCleanWindow } from './utils';
+import { getWhatsAppLink, generateWhatsAppMessage, shareOrPrintVoucher } from './utils';
 import VoucherPreview from './components/VoucherPreview';
 
 const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit?gid=0#gid=0";
@@ -354,9 +354,7 @@ const App: React.FC = () => {
     });
 
     if (andExportPdf) {
-      setTimeout(() => {
-        handleExportPDF('es', savedRes, 'voucher-to-print');
-      }, 300);
+      setShowVoucherModal({ show: true, reservation: savedRes });
     } else {
       setTimeout(() => {
         const previewEl = document.getElementById('voucher-preview-section');
@@ -545,25 +543,14 @@ const App: React.FC = () => {
 
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-  const handleOpenVoucherWindow = (lang: 'es' | 'en' = 'es', targetVoucher?: Reservation) => {
-    const voucher = targetVoucher || currentVoucher;
-    if (!voucher) {
-      showUIMessage('⚠️ No hay voucher disponible');
-      return;
-    }
-    setPreviewLanguage(lang);
-    openVoucherCleanWindow(voucher, lang, pdfSingleTourIndex);
-    showUIMessage(`📄 Voucher (${lang.toUpperCase()}) abierto en ventana limpia.`);
-  };
-
-  const handleDownloadDataUri = async (
-    lang: 'es' | 'en' = 'es',
+  const handleShareOrDownload = async (
     targetVoucher?: Reservation,
-    elementId: string = 'voucher-to-print'
+    elementId: string = 'voucher-modal-print',
+    lang: 'es' | 'en' = 'es'
   ) => {
     const voucher = targetVoucher || currentVoucher;
     if (!voucher) {
-      showUIMessage('⚠️ No hay voucher disponible para descargar');
+      showUIMessage('⚠️ No hay voucher disponible');
       return;
     }
 
@@ -571,31 +558,21 @@ const App: React.FC = () => {
     setPreviewLanguage(lang);
     await sleep(250);
 
-    const suffix = lang === 'en' ? '_EN' : '';
-    const filename = `Voucher_${voucher.reservationNo}${suffix}.pdf`;
-
     try {
-      const success = await downloadAsDataUriPDF(elementId, filename);
-      if (success) {
-        showUIMessage(`📥 PDF (${lang.toUpperCase()}) descargado exitosamente vía Data URI.`);
-      } else {
-        openVoucherCleanWindow(voucher, lang, pdfSingleTourIndex);
-        showUIMessage(`📄 Abierto en ventana limpia para imprimir o guardar como PDF.`);
+      const result = await shareOrPrintVoucher(elementId, voucher, lang);
+      if (result.method === 'share-file' || result.method === 'share-text') {
+        showUIMessage('📲 Menú para compartir activado');
+      } else if (result.method === 'print') {
+        showUIMessage('🖨️ Abriendo diálogo nativo de impresión / guardar PDF');
       }
     } catch (err) {
-      console.error('Error al descargar PDF:', err);
-      openVoucherCleanWindow(voucher, lang, pdfSingleTourIndex);
+      console.error('Error al compartir o imprimir:', err);
+      if (typeof window !== 'undefined' && typeof window.print === 'function') {
+        window.print();
+      }
     } finally {
       setIsExportingPDF(false);
     }
-  };
-
-  const handleExportPDF = (
-    lang: 'es' | 'en' = 'es',
-    targetVoucher?: Reservation,
-    _elementId: string = 'voucher-to-print'
-  ) => {
-    handleOpenVoucherWindow(lang, targetVoucher);
   };
 
   const triggerWhatsAppModal = (type: 'driver' | 'staff' | 'customer') => {
@@ -662,54 +639,24 @@ const App: React.FC = () => {
                 language={previewLanguage}
               />
             </div>
-            <div className="p-8 bg-white border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+            <div className="p-6 md:p-8 bg-white border-t border-gray-100 flex flex-col sm:flex-row gap-4">
               <button 
                 onClick={() => {
                   handleEdit(showVoucherModal.reservation!);
                   setShowVoucherModal({ show: false, reservation: null });
                 }} 
-                className="px-4 py-4 bg-orange-500 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-orange-600 transition-all flex items-center justify-center gap-2"
+                className="flex-1 py-4 px-6 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
               >
-                <i className="fas fa-edit"></i> Editar
+                <i className="fas fa-edit text-base"></i> EDITAR
               </button>
               
               <button 
-                onClick={() => handleOpenVoucherWindow('es', showVoucherModal.reservation!)} 
-                className="px-4 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
-                title="Abre ventana limpia con plantilla y botón de imprimir/guardar como PDF"
-              >
-                <i className="fas fa-print"></i> Imprimir (ES)
-              </button>
-
-              <button 
-                onClick={() => handleDownloadDataUri('es', showVoucherModal.reservation!, 'voucher-modal-print')} 
+                onClick={() => handleShareOrDownload(showVoucherModal.reservation!, 'voucher-modal-print', previewLanguage)} 
                 disabled={isExportingPDF}
-                className="px-4 py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                title="Descarga directa a través de Data URI base64"
+                className="flex-[2] py-4 px-6 bg-[#0a305e] hover:bg-blue-900 text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
               >
-                <i className="fas fa-download"></i> {isExportingPDF ? 'Descargando...' : 'Descargar PDF'}
-              </button>
-
-              <button 
-                onClick={() => handleOpenVoucherWindow('en', showVoucherModal.reservation!)} 
-                className="px-4 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
-                title="Open clean template with print / save as PDF"
-              >
-                <i className="fas fa-print"></i> Print (EN)
-              </button>
-
-              <button 
-                onClick={() => triggerWhatsAppModal('customer')} 
-                className="px-4 py-4 bg-[#25D366] text-white rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-green-600 transition-all flex items-center justify-center gap-2"
-              >
-                <i className="fab fa-whatsapp"></i> WhatsApp
-              </button>
-
-              <button 
-                onClick={() => setShowVoucherModal({ show: false, reservation: null })} 
-                className="px-4 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black uppercase text-[10px] hover:bg-gray-200 transition-all flex items-center justify-center"
-              >
-                Cerrar
+                <i className={`fas ${isExportingPDF ? 'fa-spinner fa-spin' : 'fa-share-nodes'} text-base`}></i>
+                {isExportingPDF ? 'PREPARANDO VOUCHER...' : 'COMPARTIR / DESCARGAR VOUCHER'}
               </button>
             </div>
           </div>
@@ -1150,7 +1097,7 @@ const App: React.FC = () => {
                         onClick={() => handleSave(true)} 
                         className="flex-1 py-5 bg-emerald-600 text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:bg-emerald-700 hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[200px]"
                       >
-                        <i className="fas fa-print"></i> Actualizar y Abrir Voucher / PDF
+                        <i className="fas fa-file-invoice"></i> Actualizar y Ver Voucher
                       </button>
                       <button 
                         onClick={() => handleSave(false)} 
@@ -1184,40 +1131,20 @@ const App: React.FC = () => {
                     pdfSingleTourIndex={pdfSingleTourIndex}
                     language={previewLanguage}
                   />
-                  <div className="flex justify-center flex-wrap gap-4 mt-12 px-4">
+                  <div className="flex justify-center flex-wrap gap-4 mt-12 px-4 max-w-2xl mx-auto">
                     <button 
                       onClick={() => handleEdit(currentVoucher)} 
-                      className="flex-1 bg-orange-500 text-white px-6 py-4 rounded-[24px] font-black uppercase text-[10px] shadow-lg hover:bg-orange-600 transition-all min-w-[110px] flex items-center justify-center gap-2"
+                      className="flex-1 bg-amber-500 hover:bg-amber-600 text-white px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[120px] flex items-center justify-center gap-2"
                     >
-                      <i className="fas fa-edit"></i> Editar
+                      <i className="fas fa-edit"></i> EDITAR
                     </button>
                     <button 
-                      onClick={() => handleOpenVoucherWindow('es', currentVoucher)} 
-                      className="flex-1 bg-blue-600 text-white px-6 py-4 rounded-[24px] font-black uppercase text-[10px] shadow-lg hover:bg-blue-700 transition-all min-w-[140px] flex items-center justify-center gap-2"
-                      title="Abre ventana limpia con plantilla y botón de imprimir/guardar como PDF"
-                    >
-                      <i className="fas fa-print"></i> Imprimir (ES)
-                    </button>
-                    <button 
-                      onClick={() => handleDownloadDataUri('es', currentVoucher, 'voucher-to-print')} 
+                      onClick={() => handleShareOrDownload(currentVoucher, 'voucher-to-print', previewLanguage)} 
                       disabled={isExportingPDF}
-                      className="flex-1 bg-emerald-600 text-white px-6 py-4 rounded-[24px] font-black uppercase text-[10px] shadow-lg hover:bg-emerald-700 transition-all min-w-[150px] flex items-center justify-center gap-2 disabled:opacity-50"
-                      title="Descarga directa a través de Data URI base64 sin recargar"
+                      className="flex-[2] bg-[#0a305e] hover:bg-blue-900 text-white px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-xl transition-all min-w-[220px] flex items-center justify-center gap-2 disabled:opacity-50"
                     >
-                      <i className="fas fa-download"></i> {isExportingPDF ? 'Descargando...' : 'Descargar PDF'}
-                    </button>
-                    <button 
-                      onClick={() => handleOpenVoucherWindow('en', currentVoucher)} 
-                      className="flex-1 bg-indigo-600 text-white px-6 py-4 rounded-[24px] font-black uppercase text-[10px] shadow-lg hover:bg-indigo-700 transition-all min-w-[130px] flex items-center justify-center gap-2"
-                      title="Open clean template with print / save as PDF"
-                    >
-                      <i className="fas fa-print"></i> Print (EN)
-                    </button>
-                    <button 
-                      onClick={() => triggerWhatsAppModal('driver')} 
-                      className="flex-1 bg-[#25D366] text-white px-6 py-4 rounded-[24px] font-black uppercase text-[10px] shadow-lg hover:bg-green-600 transition-all min-w-[120px] flex items-center justify-center gap-2"
-                    >
-                      <i className="fab fa-whatsapp"></i> WhatsApp
+                      <i className={`fas ${isExportingPDF ? 'fa-spinner fa-spin' : 'fa-share-nodes'}`}></i>
+                      {isExportingPDF ? 'PREPARANDO...' : 'COMPARTIR / DESCARGAR VOUCHER'}
                     </button>
                   </div>
                 </div>

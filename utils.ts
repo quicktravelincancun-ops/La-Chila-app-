@@ -228,6 +228,100 @@ export const downloadAsDataUriPDF = async (
 // Alias compatible para llamadas existentes
 export const downloadAsPDF = downloadAsDataUriPDF;
 
+/**
+ * Activa la API nativa de compartir del navegador (navigator.share)
+ * para abrir directamente el menú emergente de Android (WhatsApp, Files de Google, Correo, etc.).
+ * Si navigator.share no está soportado o falla, ejecuta window.print() como respaldo nativo.
+ */
+export const shareOrPrintVoucher = async (
+  elementId: string,
+  reservation: Reservation,
+  language: 'es' | 'en' = 'es'
+): Promise<{ success: boolean; method: string }> => {
+  const suffix = language === 'en' ? '_EN' : '';
+  const filename = `Voucher_${reservation.reservationNo || 'QuickTravel'}${suffix}.pdf`;
+
+  // 1. Intentar con la API nativa de compartir (navigator.share)
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    try {
+      const element = document.getElementById(elementId);
+      if (element) {
+        const canvas = await html2canvas(element, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+          backgroundColor: '#ffffff'
+        });
+
+        const imgData = canvas.toDataURL('image/png', 1.0);
+        const pdf = new jsPDF({
+          orientation: 'portrait',
+          unit: 'mm',
+          format: 'a4'
+        });
+
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const margin = 8;
+        const maxLineWidth = pdfWidth - (margin * 2);
+        const maxHeight = pdfHeight - (margin * 2);
+
+        const imgProps = pdf.getImageProperties(imgData);
+        const ratio = imgProps.width / imgProps.height;
+
+        let displayWidth = maxLineWidth;
+        let displayHeight = displayWidth / ratio;
+
+        if (displayHeight > maxHeight) {
+          displayHeight = maxHeight;
+          displayWidth = displayHeight * ratio;
+        }
+
+        const xOffset = (pdfWidth - displayWidth) / 2;
+        const yOffset = margin;
+
+        pdf.addImage(imgData, 'PNG', xOffset, yOffset, displayWidth, displayHeight);
+
+        const pdfBlob = pdf.output('blob');
+        const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
+
+        // Compartir el archivo PDF directamente si el navegador lo permite
+        if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [pdfFile] })) {
+          await navigator.share({
+            title: `Voucher ${reservation.reservationNo}`,
+            text: `Voucher de Servicio - ${reservation.name} (Reserva #${reservation.reservationNo})`,
+            files: [pdfFile]
+          });
+          return { success: true, method: 'share-file' };
+        }
+      }
+
+      // Si no soporta compartir archivo directo, intentar compartir información
+      await navigator.share({
+        title: `Voucher ${reservation.reservationNo} - Quick Travel`,
+        text: `Voucher #${reservation.reservationNo} - Pasajero: ${reservation.name} - Servicio: ${reservation.serviceType}`,
+        url: window.location.href
+      });
+      return { success: true, method: 'share-text' };
+    } catch (err: any) {
+      if (err && err.name === 'AbortError') {
+        // El usuario canceló o cerró el menú de compartir de Android voluntariamente
+        return { success: true, method: 'cancelled' };
+      }
+      console.warn('navigator.share falló, activando respaldo window.print():', err);
+    }
+  }
+
+  // 2. Respaldo obligatorio si no soporta navigator.share: window.print()
+  if (typeof window !== 'undefined' && typeof window.print === 'function') {
+    window.print();
+    return { success: true, method: 'print' };
+  }
+
+  return { success: false, method: 'none' };
+};
+
 const TRANSLATIONS = {
   es: {
     title: "Voucher de Confirmación",

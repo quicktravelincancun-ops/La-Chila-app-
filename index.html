@@ -19,6 +19,33 @@
   }
 }
 </script>
+<style>
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  body * {
+    visibility: hidden !important;
+  }
+  #voucher-modal-print, #voucher-modal-print *,
+  #voucher-to-print, #voucher-to-print * {
+    visibility: visible !important;
+  }
+  #voucher-modal-print, #voucher-to-print {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 8mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+  }
+}
+</style>
 <link rel="stylesheet" href="/index.css">
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans">
