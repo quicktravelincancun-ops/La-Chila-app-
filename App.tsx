@@ -2,7 +2,15 @@
 import React, { useState, useEffect } from 'react';
 import { Reservation, TransferLeg, TourLeg, CircuitoLeg } from './types';
 import { CONTACTS, COMPANY_EMAIL, SHEET_NAME, Logo, TOUR_LIST } from './constants';
-import { getWhatsAppLink, generateWhatsAppMessage } from './utils';
+import { 
+  getWhatsAppLink, 
+  generateWhatsAppMessage, 
+  isAndroidWebView, 
+  encodeVoucherToUrl, 
+  decodeVoucherFromUrl, 
+  openInSystemBrowser, 
+  shareOrPrintVoucher 
+} from './utils';
 import VoucherPreview from './components/VoucherPreview';
 
 const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit?gid=0#gid=0";
@@ -12,6 +20,8 @@ const App: React.FC = () => {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [currentVoucher, setCurrentVoucher] = useState<Reservation | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [isWebView, setIsWebView] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tourSuggestions, setTourSuggestions] = useState<{index: number, list: string[]}>({ index: -1, list: [] });
@@ -83,6 +93,16 @@ const App: React.FC = () => {
   const [formData, setFormData] = useState(initialFormState);
 
   useEffect(() => {
+    setIsWebView(isAndroidWebView());
+
+    // Check if voucher is provided via URL parameter (e.g. from WebView handoff to Chrome)
+    const sharedVoucher = decodeVoucherFromUrl();
+    if (sharedVoucher) {
+      setCurrentVoucher(sharedVoucher);
+      setShowVoucherModal({ show: true, reservation: sharedVoucher });
+      showUIMessage(`📄 Voucher #${sharedVoucher.reservationNo} cargado`);
+    }
+
     const saved = localStorage.getItem('qt_reservations');
     if (saved) {
       try {
@@ -546,6 +566,43 @@ const App: React.FC = () => {
     }
   };
 
+  const handleShareOrDownload = async (
+    targetVoucher?: Reservation | null,
+    elementId: string = 'voucher-modal-print',
+    lang: 'es' | 'en' = 'es'
+  ) => {
+    const voucher = targetVoucher || currentVoucher;
+    if (!voucher) {
+      showUIMessage('⚠️ No hay voucher disponible');
+      return;
+    }
+
+    // 1. Check if running inside an Android WebView (/wv/i.test(navigator.userAgent) or window.Android)
+    if (isAndroidWebView()) {
+      showUIMessage('🌐 Abriendo voucher en Chrome / Navegador externo...');
+      const voucherUrl = encodeVoucherToUrl(voucher);
+      openInSystemBrowser(voucherUrl);
+      return;
+    }
+
+    // 2. If running in a standard browser, preserve the current native navigator.share / image download flow
+    setIsExportingPDF(true);
+    setPreviewLanguage(lang);
+    try {
+      const result = await shareOrPrintVoucher(elementId, voucher, lang);
+      if (result.method === 'share-file' || result.method === 'share-text') {
+        showUIMessage('📲 Menú para compartir activado');
+      } else if (result.method === 'download') {
+        showUIMessage('📥 Voucher descargado como imagen');
+      }
+    } catch (err) {
+      console.error('Error al compartir o descargar voucher:', err);
+      showUIMessage('⚠️ Error al procesar el voucher');
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
+
   const triggerWhatsAppModal = (type: 'driver' | 'staff' | 'customer') => {
     let defaultNum = '';
     let label = '';
@@ -625,17 +682,27 @@ const App: React.FC = () => {
                   handleEdit(showVoucherModal.reservation!);
                   setShowVoucherModal({ show: false, reservation: null });
                 }} 
-                className="flex-1 py-4 px-6 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                className="py-3.5 sm:py-4 px-5 sm:px-6 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
               >
-                <i className="fas fa-edit text-base"></i> EDITAR
+                <i className="fas fa-edit text-sm"></i> EDITAR
               </button>
               
               <button 
                 onClick={handlePrintVoucher} 
-                className="flex-[2] py-4 px-6 bg-[#0a305e] hover:bg-blue-900 text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-3 active:scale-[0.98]"
+                className="py-3.5 sm:py-4 px-4 sm:px-5 bg-slate-700 hover:bg-slate-800 text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                title="Imprimir o guardar como PDF"
               >
-                <i className="fas fa-print text-lg text-emerald-400"></i>
-                <span>IMPRIMIR / GUARDAR COMO PDF</span>
+                <i className="fas fa-print text-sm text-emerald-400"></i>
+                <span>IMPRIMIR / PDF</span>
+              </button>
+
+              <button 
+                onClick={() => handleShareOrDownload(showVoucherModal.reservation!, 'voucher-modal-print', previewLanguage)} 
+                disabled={isExportingPDF}
+                className="flex-1 py-3.5 sm:py-4 px-5 sm:px-6 bg-[#0a305e] hover:bg-blue-900 text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-2.5 disabled:opacity-50 active:scale-[0.98]"
+              >
+                <i className={`fas ${isExportingPDF ? 'fa-spinner fa-spin' : (isWebView ? 'fa-external-link-alt' : 'fa-share-nodes')} text-base text-blue-300`}></i>
+                <span>{isExportingPDF ? 'PREPARANDO VOUCHER...' : 'COMPARTIR / DESCARGAR VOUCHER'}</span>
               </button>
             </div>
           </div>
@@ -1110,19 +1177,27 @@ const App: React.FC = () => {
                     pdfSingleTourIndex={pdfSingleTourIndex}
                     language={previewLanguage}
                   />
-                  <div className="flex justify-center flex-wrap gap-4 mt-12 px-4 max-w-2xl mx-auto no-print">
+                  <div className="flex justify-center flex-wrap gap-3 sm:gap-4 mt-12 px-4 max-w-2xl mx-auto no-print">
                     <button 
                       onClick={() => handleEdit(currentVoucher)} 
-                      className="flex-1 bg-amber-500 hover:bg-amber-600 text-white px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[120px] flex items-center justify-center gap-2 active:scale-[0.98]"
+                      className="bg-amber-500 hover:bg-amber-600 text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[110px] flex items-center justify-center gap-2 active:scale-[0.98]"
                     >
                       <i className="fas fa-edit"></i> EDITAR
                     </button>
                     <button 
                       onClick={handlePrintVoucher} 
-                      className="flex-[2] bg-[#0a305e] hover:bg-blue-900 text-white px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-xl transition-all min-w-[220px] flex items-center justify-center gap-2 active:scale-[0.98]"
+                      className="bg-slate-700 hover:bg-slate-800 text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[130px] flex items-center justify-center gap-2 active:scale-[0.98]"
+                      title="Imprimir o guardar como PDF"
                     >
-                      <i className="fas fa-print text-emerald-400 text-base"></i>
-                      <span>IMPRIMIR / GUARDAR COMO PDF</span>
+                      <i className="fas fa-print text-emerald-400"></i> IMPRIMIR / PDF
+                    </button>
+                    <button 
+                      onClick={() => handleShareOrDownload(currentVoucher, 'voucher-to-print', previewLanguage)} 
+                      disabled={isExportingPDF}
+                      className="flex-1 bg-[#0a305e] hover:bg-blue-900 text-white px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-xl transition-all min-w-[220px] flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+                    >
+                      <i className={`fas ${isExportingPDF ? 'fa-spinner fa-spin' : (isWebView ? 'fa-external-link-alt' : 'fa-share-nodes')}`}></i>
+                      <span>{isExportingPDF ? 'PREPARANDO...' : 'COMPARTIR / DESCARGAR VOUCHER'}</span>
                     </button>
                   </div>
                 </div>

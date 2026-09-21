@@ -236,9 +236,89 @@ export const downloadAsDataUriPDF = async (
 // Alias compatible para llamadas existentes
 export const downloadAsPDF = downloadAsDataUriPDF;
 
+/**
+ * Detects whether the app is currently running inside an Android WebView
+ * (AppsGeyser, Cordova, Capacitor, Android WebView wrapper).
+ */
+export const isAndroidWebView = (): boolean => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isWv = /wv/i.test(ua);
+  const hasAndroidBridge = Boolean((window as any).Android);
+  const isAndroidWebViewUA = /Android/i.test(ua) && (/Version\/[0-9.]+/i.test(ua) || !/Mobile Safari/i.test(ua));
+  return isWv || hasAndroidBridge || isAndroidWebViewUA;
+};
+
+/**
+ * Encodes a reservation to a query string so it can be viewed in an external browser
+ */
+export const encodeVoucherToUrl = (reservation: Reservation): string => {
+  try {
+    const json = JSON.stringify(reservation);
+    const b64 = btoa(encodeURIComponent(json).replace(/%([0-9A-F]{2})/g, (_, p1) => 
+      String.fromCharCode(parseInt(p1, 16))
+    ));
+    const url = new URL(window.location.href);
+    url.searchParams.set('voucher', b64);
+    return url.toString();
+  } catch (e) {
+    console.error('Error encoding voucher to URL:', e);
+    return window.location.href;
+  }
+};
+
+/**
+ * Decodes a reservation from the URL query string if present
+ */
+export const decodeVoucherFromUrl = (): Reservation | null => {
+  try {
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams(window.location.search);
+    const v = params.get('voucher') || params.get('v');
+    if (!v) return null;
+    const json = decodeURIComponent(Array.prototype.map.call(atob(v), (c: string) => {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    return JSON.parse(json) as Reservation;
+  } catch (e) {
+    console.error('Error decoding voucher from URL:', e);
+    return null;
+  }
+};
+
+/**
+ * Opens a URL in the system's external browser (Chrome) using _system
+ * targeted specifically for Android WebViews (such as AppsGeyser).
+ */
+export const openInSystemBrowser = (url: string): void => {
+  try {
+    // 1. window.open with '_system' (supported by AppsGeyser / Cordova)
+    const win = window.open(url, '_system');
+    if (!win) {
+      // 2. Fallback using a standard HTML anchor with target="_system"
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_system';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => a.remove(), 500);
+    }
+  } catch (err) {
+    console.warn('window.open(_system) error, using target="_system" anchor:', err);
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_system';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => a.remove(), 500);
+  }
+};
+
 export interface VoucherShareResult {
   success: boolean;
-  method: 'share-file' | 'share-text' | 'cancelled' | 'webview-fallback';
+  method: 'share-file' | 'share-text' | 'cancelled' | 'download' | 'webview-fallback';
   imageUrl?: string;
   filename?: string;
   whatsAppText?: string;
@@ -247,8 +327,7 @@ export interface VoucherShareResult {
 /**
  * Genera una imagen PNG/JPEG del voucher usando html2canvas.
  * Intenta activar navigator.share (para WhatsApp/Archivos).
- * Si navigator.share falla o es bloqueado por la WebView de Android,
- * retorna 'webview-fallback' con la imagen y el texto de WhatsApp para el enlace directo.
+ * Si navigator.share no está disponible o falla, descarga la imagen.
  */
 export const shareOrPrintVoucher = async (
   elementId: string,
@@ -284,7 +363,7 @@ export const shareOrPrintVoucher = async (
     console.warn('Error al generar imagen con html2canvas:', canvasErr);
   }
 
-  // 1. Intentar con la API nativa de compartir (navigator.share)
+  // 1. Intentar con la API nativa de compartir (navigator.share) en navegadores estándar
   if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
     try {
       if (fileToShare && typeof navigator.canShare === 'function' && navigator.canShare({ files: [fileToShare] })) {
@@ -304,15 +383,28 @@ export const shareOrPrintVoucher = async (
       return { success: true, method: 'share-text', imageUrl: imgDataUrl, filename, whatsAppText };
     } catch (err: any) {
       if (err && err.name === 'AbortError') {
-        // Usuario cerró el menú nativo
+        // Usuario canceló el menú nativo
         return { success: true, method: 'cancelled', imageUrl: imgDataUrl, filename, whatsAppText };
       }
-      console.warn('navigator.share no disponible o bloqueado por WebView:', err);
+      console.warn('navigator.share no completado:', err);
     }
   }
 
-  // 2. Si navigator.share falló, no está soportado o la WebView lo bloquea:
-  // Retorna fallback para activar la vista emergente directa con botón de WhatsApp e imagen
+  // 2. Si navigator.share no está soportado o falló, descargar la imagen directamente
+  if (imgDataUrl) {
+    try {
+      const link = document.createElement('a');
+      link.href = imgDataUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => link.remove(), 1000);
+      return { success: true, method: 'download', imageUrl: imgDataUrl, filename, whatsAppText };
+    } catch (dlErr) {
+      console.warn('Error descargando imagen:', dlErr);
+    }
+  }
+
   return {
     success: true,
     method: 'webview-fallback',
