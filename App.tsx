@@ -34,6 +34,15 @@ const App: React.FC = () => {
     reservation: Reservation | null;
   }>({ show: false, reservation: null });
 
+  const [pdfReadyModal, setPdfReadyModal] = useState<{
+    show: boolean;
+    filename: string;
+    googleDocsUrl?: string;
+    serverUrl?: string;
+    downloadUrl?: string;
+    blobUrl?: string;
+  } | null>(null);
+
   const generateNewId = () => {
     const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     let randomPart = '';
@@ -563,10 +572,11 @@ const App: React.FC = () => {
     const suffix = lang === 'en' ? '_EN' : '';
 
     try {
+      let lastResult: any = null;
       if (voucher.serviceType === "Tour o Excursión") {
         setPdfSingleTourIndex(0);
         await sleep(250); 
-        await downloadAsPDF(elementId, `Voucher_${voucher.reservationNo}_Tour_1${suffix}.pdf`);
+        lastResult = await downloadAsPDF(elementId, `Voucher_${voucher.reservationNo}_Tour_1${suffix}.pdf`);
         if (voucher.extraTours && voucher.extraTours.length > 0) {
           for (let i = 0; i < voucher.extraTours.length; i++) {
             setPdfSingleTourIndex(i + 1);
@@ -576,9 +586,22 @@ const App: React.FC = () => {
         }
         setPdfSingleTourIndex(null);
       } else {
-        await downloadAsPDF(elementId, `Voucher_${voucher.reservationNo}${suffix}.pdf`);
+        lastResult = await downloadAsPDF(elementId, `Voucher_${voucher.reservationNo}${suffix}.pdf`);
       }
-      showUIMessage(`📄 PDF (${lang.toUpperCase()}) descargado con éxito.`);
+
+      if (lastResult && lastResult.success) {
+        showUIMessage(`📄 PDF (${lang.toUpperCase()}) generado con visor seguro.`);
+        setPdfReadyModal({
+          show: true,
+          filename: lastResult.filename,
+          googleDocsUrl: lastResult.googleDocsUrl,
+          serverUrl: lastResult.serverUrl,
+          downloadUrl: lastResult.downloadUrl,
+          blobUrl: lastResult.blobUrl,
+        });
+      } else {
+        showUIMessage(`📄 PDF (${lang.toUpperCase()}) generado con éxito.`);
+      }
     } catch (err) {
       console.error('Error generando PDF:', err);
       showUIMessage('❌ Error al generar el PDF.');
@@ -688,6 +711,73 @@ const App: React.FC = () => {
               <button 
                 onClick={() => setShowVoucherModal({ show: false, reservation: null })} 
                 className="px-4 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black uppercase text-[10px] hover:bg-gray-200 transition-all flex items-center justify-center"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pdfReadyModal?.show && (
+        <div className="fixed inset-0 z-[280] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden border border-gray-100 animate-in zoom-in-95 duration-200">
+            <div className="bg-[#0a305e] p-6 text-white text-center relative">
+              <button 
+                onClick={() => setPdfReadyModal(null)} 
+                className="absolute top-4 right-4 w-9 h-9 flex items-center justify-center rounded-full hover:bg-white/10 text-white/80 hover:text-white transition-all"
+              >
+                <i className="fas fa-times text-lg"></i>
+              </button>
+              <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-inner">
+                <i className="fas fa-file-pdf text-3xl text-red-400"></i>
+              </div>
+              <h3 className="text-xl font-black uppercase tracking-tight">Voucher PDF Listo</h3>
+              <p className="text-xs text-blue-200 mt-1 font-mono font-bold truncate px-4">{pdfReadyModal.filename}</p>
+            </div>
+
+            <div className="p-6 space-y-3 bg-gray-50/50">
+              <p className="text-xs text-slate-600 text-center font-medium leading-relaxed mb-4">
+                El PDF se abre con <span className="font-bold text-slate-800">target=&apos;_blank&apos;</span> para evitar que la app de Android se reinicie. Puedes abrirlo con cualquiera de las siguientes opciones:
+              </p>
+
+              {pdfReadyModal.googleDocsUrl && (
+                <a 
+                  href={pdfReadyModal.googleDocsUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="w-full py-4 px-5 bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-[11px] rounded-2xl flex items-center justify-center gap-3 shadow-lg shadow-blue-500/20 transition-all hover:scale-[1.01]"
+                >
+                  <i className="fab fa-google text-base"></i> Abrir en Visor Google Docs
+                </a>
+              )}
+
+              {(pdfReadyModal.serverUrl || pdfReadyModal.blobUrl) && (
+                <a 
+                  href={pdfReadyModal.serverUrl || pdfReadyModal.blobUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="w-full py-4 px-5 bg-slate-800 hover:bg-slate-900 text-white font-black uppercase text-[11px] rounded-2xl flex items-center justify-center gap-3 shadow-md transition-all hover:scale-[1.01]"
+                >
+                  <i className="fas fa-external-link-alt text-sm"></i> Abrir PDF Directo (target=&apos;_blank&apos;)
+                </a>
+              )}
+
+              {(pdfReadyModal.downloadUrl || pdfReadyModal.blobUrl) && (
+                <a 
+                  href={pdfReadyModal.downloadUrl || pdfReadyModal.blobUrl} 
+                  download={pdfReadyModal.filename}
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="w-full py-3.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[11px] rounded-2xl flex items-center justify-center gap-3 shadow-md transition-all hover:scale-[1.01]"
+                >
+                  <i className="fas fa-download text-sm"></i> Descargar Archivo
+                </a>
+              )}
+
+              <button 
+                onClick={() => setPdfReadyModal(null)}
+                className="w-full py-3 bg-white text-slate-500 hover:bg-gray-100 font-bold uppercase text-[10px] rounded-2xl transition-all border border-gray-200 mt-2"
               >
                 Cerrar
               </button>

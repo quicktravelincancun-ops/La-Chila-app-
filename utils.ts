@@ -137,14 +137,67 @@ export const generateWhatsAppMessage = (res: Reservation) => {
   return msg.trim();
 };
 
-export const downloadAsPDF = async (elementIdOrElement: string | HTMLElement, filename: string): Promise<boolean> => {
+export interface PDFGenerationResult {
+  success: boolean;
+  filename: string;
+  blobUrl?: string;
+  serverUrl?: string;
+  downloadUrl?: string;
+  googleDocsUrl?: string;
+  error?: string;
+}
+
+export const openLinkInBlank = (url: string, downloadName?: string) => {
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.setAttribute('target', '_blank');
+    if (downloadName) {
+      a.setAttribute('download', downloadName);
+    }
+    a.style.position = 'fixed';
+    a.style.left = '-9999px';
+    a.style.top = '-9999px';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      if (document.body.contains(a)) {
+        document.body.removeChild(a);
+      }
+    }, 2000);
+  } catch (err) {
+    console.warn('Error al disparar click en enlace _blank:', err);
+  }
+
+  // Fallback con window.open forzando _blank
+  try {
+    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    if (win) win.focus();
+  } catch (err) {
+    console.warn('window.open fallback fue bloqueado o no permitido:', err);
+  }
+};
+
+export const downloadAsPDF = async (
+  elementIdOrElement: string | HTMLElement, 
+  filename: string,
+  options?: {
+    openMode?: 'auto' | 'gdocs' | 'blank' | 'none';
+  }
+): Promise<PDFGenerationResult> => {
   const element = typeof elementIdOrElement === 'string' 
     ? document.getElementById(elementIdOrElement) 
     : elementIdOrElement;
 
   if (!element) {
     console.error('downloadAsPDF: Elemento no encontrado:', elementIdOrElement);
-    return false;
+    return {
+      success: false,
+      filename,
+      error: 'Elemento no encontrado para generar PDF'
+    };
   }
   
   try {
@@ -193,10 +246,71 @@ export const downloadAsPDF = async (elementIdOrElement: string | HTMLElement, fi
     const yOffset = margin;
     
     pdf.addImage(imgData, 'PNG', xOffset, yOffset, displayWidth, displayHeight);
-    pdf.save(filename);
-    return true;
-  } catch (error) {
+
+    const pdfBlob = pdf.output('blob');
+    const blobUrl = URL.createObjectURL(pdfBlob);
+    const pdfBase64 = pdf.output('datauristring');
+
+    // Subir temporalmente al backend para servir con URL pública a Google Docs Viewer
+    let serverUrl = '';
+    let downloadUrl = '';
+    let googleDocsUrl = '';
+
+    try {
+      const uploadRes = await fetch('/api/pdf/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pdfBase64, filename })
+      });
+
+      if (uploadRes.ok) {
+        const data = await uploadRes.json();
+        if (data.success) {
+          serverUrl = data.fullUrl || `${window.location.origin}${data.viewUrl}`;
+          downloadUrl = data.downloadUrl ? `${window.location.origin}${data.downloadUrl}` : serverUrl;
+          googleDocsUrl = data.googleDocsUrl || `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(serverUrl)}`;
+        }
+      }
+    } catch (uploadErr) {
+      console.warn('No se pudo subir PDF temporal al servidor:', uploadErr);
+    }
+
+    const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    // Priorizar Google Docs Viewer si tenemos URL pública disponible, o bien URL directa con target='_blank'
+    let targetOpenUrl = blobUrl;
+    if (googleDocsUrl && !isLocalhost) {
+      targetOpenUrl = googleDocsUrl;
+    } else if (serverUrl) {
+      targetOpenUrl = serverUrl;
+    }
+
+    const openMode = options?.openMode || 'auto';
+    if (openMode !== 'none') {
+      if (openMode === 'gdocs' && googleDocsUrl) {
+        openLinkInBlank(googleDocsUrl);
+      } else if (openMode === 'blank') {
+        openLinkInBlank(serverUrl || blobUrl, filename);
+      } else {
+        // En Android y web, forzar apertura segura con target='_blank' usando Google Docs o visor seguro
+        openLinkInBlank(targetOpenUrl);
+      }
+    }
+
+    return {
+      success: true,
+      filename,
+      blobUrl,
+      serverUrl,
+      downloadUrl,
+      googleDocsUrl: googleDocsUrl || (serverUrl ? `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(serverUrl)}` : undefined),
+    };
+  } catch (error: any) {
     console.error('Error al generar PDF:', error);
-    return false;
+    return {
+      success: false,
+      filename,
+      error: error?.message || 'Error desconocido al generar PDF'
+    };
   }
 };
