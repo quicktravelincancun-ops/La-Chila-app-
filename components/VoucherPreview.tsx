@@ -11,7 +11,6 @@ interface VoucherPreviewProps {
   pdfSingleTourIndex?: number | null; // null = show all, 0 = primary tour, 1+ = extra tours
   language?: Language;
   id?: string;
-  className?: string;
 }
 
 const TRANSLATIONS = {
@@ -141,7 +140,7 @@ const VALUE_MAP: Record<string, string> = {
   "Tour Privado": "Private Tour"
 };
 
-const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleTourIndex = null, language = 'es', id = 'voucher-to-print', className = '' }) => {
+const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleTourIndex = null, language = 'es', id = 'voucher-to-print' }) => {
   const isPdfMode = pdfSingleTourIndex !== null;
   const showArrival = !isPdfMode && (reservation.serviceType === "Llegada y Salida" || reservation.serviceType === "Solo Llegada");
   const showDeparture = !isPdfMode && (reservation.serviceType === "Llegada y Salida" || reservation.serviceType === "Solo Salida");
@@ -187,7 +186,7 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
     : [getDisplayTour(0), ...(reservation.extraTours?.map((_, i) => getDisplayTour(i + 1)) || [])];
 
   return (
-    <div className={`bg-white p-4 md:p-8 shadow-2xl border border-gray-200 max-w-[800px] mx-auto overflow-hidden relative print:shadow-none print:p-4 print:border-none print:max-w-full ${className}`} id={id}>
+    <div className="bg-white p-4 md:p-8 shadow-2xl border border-gray-200 max-w-[800px] mx-auto overflow-hidden relative print:shadow-none print:p-4" id={id}>
       {/* Brand Top Accent */}
       <div className="absolute top-0 left-0 w-full h-1 bg-[#0a305e]"></div>
       

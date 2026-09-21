@@ -6,25 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: "25mb" }));
-app.use(express.urlencoded({ extended: true, limit: "25mb" }));
-
-interface StoredPdf {
-  buffer: Buffer;
-  filename: string;
-  createdAt: number;
-}
-const pdfStorage = new Map<string, StoredPdf>();
-
-// Limpieza automática cada 15 min de PDFs temporales con más de 3 horas
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, item] of pdfStorage.entries()) {
-    if (now - item.createdAt > 3 * 60 * 60 * 1000) {
-      pdfStorage.delete(id);
-    }
-  }
-}, 15 * 60 * 1000);
+app.use(express.json({ limit: "10mb" }));
 
 // Lazy-initialized Gemini Client
 let aiClient: GoogleGenAI | null = null;
@@ -187,13 +169,14 @@ IMPORTANTE: Extrae SIEMPRE todos los campos que aparezcan en el texto (personas,
     }
 
     let cleanText = responseText.trim();
-    cleanText = cleanText.replace(/^```(?:json)?\s*/gi, "");
-    cleanText = cleanText.replace(/\s*```$/gi, "");
-    cleanText = cleanText.replace(/```(?:json)?/gi, "");
-    cleanText = cleanText.replace(/```/g, "");
+    if (cleanText.startsWith("```")) {
+      cleanText = cleanText.replace(/^```(?:json)?\s*/i, "");
+      cleanText = cleanText.replace(/\s*```$/, "");
+      cleanText = cleanText.trim();
+    }
     const firstBrace = cleanText.indexOf('{');
     const lastBrace = cleanText.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
       cleanText = cleanText.substring(firstBrace, lastBrace + 1);
     }
     const parsedData = JSON.parse(cleanText);
@@ -243,75 +226,6 @@ IMPORTANTE: Extrae SIEMPRE todos los campos que aparezcan en el texto (personas,
       error: error?.message || "Ocurrió un error al procesar el texto con IA.",
     });
   }
-});
-
-// Endpoint para almacenar temporalmente PDF generado por el cliente y servirlo para Google Docs o descarga segura
-app.post("/api/pdf/upload", (req, res) => {
-  try {
-    const { pdfBase64, filename } = req.body;
-    if (!pdfBase64 || typeof pdfBase64 !== "string") {
-      return res.status(400).json({ success: false, error: "Falta el contenido en base64 del PDF." });
-    }
-
-    const cleanBase64 = pdfBase64
-      .replace(/^data:application\/pdf;filename=[^;]+;base64,/, "")
-      .replace(/^data:application\/pdf;base64,/, "")
-      .replace(/^data:image\/[^;]+;base64,/, "");
-    const buffer = Buffer.from(cleanBase64, "base64");
-    const safeFilename = (filename || "Voucher.pdf").replace(/[^a-zA-Z0-9._-]/g, "_");
-    const id = `${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
-
-    pdfStorage.set(id, {
-      buffer,
-      filename: safeFilename,
-      createdAt: Date.now(),
-    });
-
-    const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
-    const host = req.get("host") || "localhost:3000";
-    const fullUrl = `${protocol}://${host}/api/pdf/view/${id}`;
-    const googleDocsUrl = `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(fullUrl)}`;
-
-    return res.json({
-      success: true,
-      id,
-      filename: safeFilename,
-      viewUrl: `/api/pdf/view/${id}`,
-      downloadUrl: `/api/pdf/download/${id}`,
-      fullUrl,
-      googleDocsUrl,
-    });
-  } catch (err: any) {
-    console.error("Error al almacenar PDF temporal:", err);
-    return res.status(500).json({ success: false, error: "Error al procesar el archivo PDF." });
-  }
-});
-
-// Ver PDF inline con encabezados que previenen navegación no deseada
-app.get("/api/pdf/view/:id", (req, res) => {
-  const { id } = req.params;
-  const item = pdfStorage.get(id);
-  if (!item) {
-    return res.status(404).send("El documento PDF no fue encontrado o ha expirado. Por favor, genéralo nuevamente desde la aplicación.");
-  }
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(item.filename)}"`);
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Cache-Control", "public, max-age=3600");
-  res.send(item.buffer);
-});
-
-// Descarga directa con Content-Disposition: attachment
-app.get("/api/pdf/download/:id", (req, res) => {
-  const { id } = req.params;
-  const item = pdfStorage.get(id);
-  if (!item) {
-    return res.status(404).send("El documento PDF no fue encontrado o ha expirado. Por favor, genéralo nuevamente desde la aplicación.");
-  }
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(item.filename)}"`);
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.send(item.buffer);
 });
 
 async function startServer() {
