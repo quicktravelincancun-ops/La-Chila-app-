@@ -186,7 +186,7 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
     : [getDisplayTour(0), ...(reservation.extraTours?.map((_, i) => getDisplayTour(i + 1)) || [])];
 
   return (
-    <div className="bg-white p-4 md:p-8 shadow-2xl border border-gray-200 max-w-[800px] mx-auto overflow-hidden relative print:shadow-none print:p-4" id={id}>
+    <div className="bg-white p-4 md:p-8 shadow-2xl border border-gray-200 max-w-[800px] mx-auto overflow-hidden relative print:shadow-none print:border-none print:p-2 print:max-w-full print:w-full" id={id}>
       {/* Brand Top Accent */}
       <div className="absolute top-0 left-0 w-full h-1 bg-[#0a305e]"></div>
       
@@ -470,15 +470,10 @@ const DetailRow: React.FC<{ label: string; value: string | number | undefined | 
     <div className={className}>
       <span className="block text-[6px] text-gray-400 uppercase font-black tracking-widest mb-0.5">{label}</span>
       {isLink && displayValue !== '---' ? (
-        <a 
-          href={getGoogleMapsLink(String(displayValue))} 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className={`text-blue-600 font-black hover:text-blue-800 transition-colors flex items-center gap-1 ${size === 'large' ? 'text-base' : 'text-[10px]'}`}
-        >
+        <span className={`text-blue-700 font-black flex items-center gap-1 ${size === 'large' ? 'text-base' : 'text-[10px]'}`}>
           <span className="truncate">{displayValue}</span>
-          <i className="fas fa-map-marker-alt text-[7px] opacity-40"></i>
-        </a>
+          <i className="fas fa-map-marker-alt text-[7px] text-blue-500 opacity-60"></i>
+        </span>
       ) : (
         <span className={`text-gray-900 font-black tracking-tight ${size === 'large' ? 'text-lg' : 'text-[10px]'} ${highlight ? 'text-[#f05a28]' : ''}`}>
           {displayValue}

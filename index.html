@@ -21,28 +21,77 @@
 </script>
 <style>
 @media print {
-  body {
-    background: white !important;
-    color: black !important;
+  @page {
+    size: auto;
+    margin: 5mm;
   }
+  
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Ocultar todos los elementos de la interfaz */
   body * {
     visibility: hidden !important;
   }
-  #voucher-modal-print, #voucher-modal-print *,
-  #voucher-to-print, #voucher-to-print * {
+
+  /* Mostrar exclusivamente el contenedor del voucher activo */
+  #voucher-modal-print,
+  #voucher-modal-print *,
+  #voucher-to-print,
+  #voucher-to-print * {
     visibility: visible !important;
   }
-  #voucher-modal-print, #voucher-to-print {
+
+  /* Desactivar fondos y sombras del modal durante la impresión */
+  .modal-overlay,
+  .modal-card {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* El voucher ocupa toda la página limpia */
+  #voucher-modal-print,
+  #voucher-to-print {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
-    padding: 8mm !important;
+    padding: 2mm !important;
     box-shadow: none !important;
     border: none !important;
-    background: white !important;
+    background: #ffffff !important;
+    z-index: 999999 !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Ocultar botones y encabezados no imprimibles */
+  .no-print,
+  button,
+  nav,
+  header,
+  footer,
+  aside {
+    display: none !important;
   }
 }
 </style>

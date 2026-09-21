@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Reservation, TransferLeg, TourLeg, CircuitoLeg } from './types';
 import { CONTACTS, COMPANY_EMAIL, SHEET_NAME, Logo, TOUR_LIST } from './constants';
-import { getWhatsAppLink, generateWhatsAppMessage, shareOrPrintVoucher } from './utils';
+import { getWhatsAppLink, generateWhatsAppMessage } from './utils';
 import VoucherPreview from './components/VoucherPreview';
 
 const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit?gid=0#gid=0";
@@ -12,7 +12,6 @@ const App: React.FC = () => {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [currentVoucher, setCurrentVoucher] = useState<Reservation | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tourSuggestions, setTourSuggestions] = useState<{index: number, list: string[]}>({ index: -1, list: [] });
@@ -33,14 +32,6 @@ const App: React.FC = () => {
     show: boolean;
     reservation: Reservation | null;
   }>({ show: false, reservation: null });
-
-  const [voucherShareDialog, setVoucherShareDialog] = useState<{
-    show: boolean;
-    reservation: Reservation | null;
-    imageUrl: string;
-    filename: string;
-    text: string;
-  } | null>(null);
 
   const generateNewId = () => {
     const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -542,63 +533,16 @@ const App: React.FC = () => {
       await navigator.clipboard.writeText(tsv);
       setSyncing(true);
       showUIMessage(`📋 Copiado! Pega (Ctrl+V) en la hoja.`);
-      setTimeout(() => { setSyncing(false); window.open(GOOGLE_SHEET_URL, '_blank'); }, 1000);
+      setTimeout(() => { setSyncing(false); window.location.href = GOOGLE_SHEET_URL; }, 1000);
     } catch (err) {
-      window.open(GOOGLE_SHEET_URL, '_blank');
+      window.location.href = GOOGLE_SHEET_URL;
       showUIMessage(`⚠️ No se pudo copiar. Abriendo hoja.`);
     }
   };
 
-  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-  const handleShareOrDownload = async (
-    targetVoucher?: Reservation,
-    elementId: string = 'voucher-modal-print',
-    lang: 'es' | 'en' = 'es'
-  ) => {
-    const voucher = targetVoucher || currentVoucher;
-    if (!voucher) {
-      showUIMessage('⚠️ No hay voucher disponible');
-      return;
-    }
-
-    setIsExportingPDF(true);
-    setPreviewLanguage(lang);
-    await sleep(250);
-
-    try {
-      const result = await shareOrPrintVoucher(elementId, voucher, lang);
-      if (result.method === 'share-file' || result.method === 'share-text') {
-        showUIMessage('📲 Menú para compartir activado');
-      } else if (result.method === 'webview-fallback') {
-        if (result.imageUrl) {
-          // Intentar descarga directa de imagen
-          try {
-            const link = document.createElement('a');
-            link.href = result.imageUrl;
-            link.download = result.filename || `Voucher_${voucher.reservationNo}.jpg`;
-            document.body.appendChild(link);
-            link.click();
-            setTimeout(() => link.remove(), 1000);
-          } catch (dlErr) {
-            console.warn('Auto download link error:', dlErr);
-          }
-
-          // Abrir vista emergente con botón directo de WhatsApp y vista previa limpia
-          setVoucherShareDialog({
-            show: true,
-            reservation: voucher,
-            imageUrl: result.imageUrl,
-            filename: result.filename || `Voucher_${voucher.reservationNo}.jpg`,
-            text: result.whatsAppText || ''
-          });
-        }
-      }
-    } catch (err) {
-      console.error('Error al compartir o procesar voucher:', err);
-      showUIMessage('⚠️ No se pudo procesar la imagen del voucher');
-    } finally {
-      setIsExportingPDF(false);
+  const handlePrintVoucher = () => {
+    if (typeof window !== 'undefined' && typeof window.print === 'function') {
+      window.print();
     }
   };
 
@@ -614,7 +558,7 @@ const App: React.FC = () => {
   const confirmAndSendWhatsApp = () => {
     const voucher = currentVoucher || formData;
     const message = generateWhatsAppMessage(voucher as Reservation);
-    window.open(getWhatsAppLink(showWSModal.number, message), '_blank');
+    window.location.href = getWhatsAppLink(showWSModal.number, message);
     setShowWSModal(prev => ({ ...prev, show: false }));
   };
 
@@ -646,110 +590,27 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {voucherShareDialog && voucherShareDialog.show && (
-        <div className="fixed inset-0 z-[320] flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-lg rounded-[36px] shadow-2xl overflow-hidden my-6 border border-slate-100 animate-in zoom-in duration-200">
-            <div className="bg-[#0a305e] px-6 py-5 text-white flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 flex items-center justify-center border border-emerald-400/30">
-                  <i className="fab fa-whatsapp text-2xl text-emerald-400"></i>
-                </div>
-                <div>
-                  <h3 className="text-base font-black uppercase tracking-wide">Voucher Generado</h3>
-                  <p className="text-[11px] text-blue-200 font-medium">Reserva #{voucherShareDialog.reservation?.reservationNo} - {voucherShareDialog.reservation?.name}</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setVoucherShareDialog(null)}
-                className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-all"
-                title="Cerrar"
-              >
-                <i className="fas fa-times text-base"></i>
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4 bg-slate-50">
-              {/* Botón directo de WhatsApp requerido */}
-              <a 
-                href={`https://api.whatsapp.com/send?text=${encodeURIComponent(voucherShareDialog.text)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-4 px-6 bg-[#25D366] hover:bg-[#20ba5a] text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-3 active:scale-[0.98]"
-              >
-                <i className="fab fa-whatsapp text-2xl"></i>
-                <span>Enviar por WhatsApp</span>
-              </a>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <a 
-                  href={voucherShareDialog.imageUrl}
-                  download={voucherShareDialog.filename}
-                  className="py-3.5 px-4 bg-[#0a305e] hover:bg-blue-900 text-white rounded-xl font-black uppercase text-[11px] shadow-md flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-                >
-                  <i className="fas fa-download"></i>
-                  <span>Descargar Imagen</span>
-                </a>
-
-                <button 
-                  onClick={() => {
-                    const currentHost = window.location.host;
-                    const currentPath = window.location.pathname + window.location.search;
-                    const intentUrl = `intent://${currentHost}${currentPath}#Intent;scheme=https;package=com.android.chrome;end`;
-                    try {
-                      window.location.href = intentUrl;
-                    } catch (e) {
-                      window.open(window.location.href, '_blank');
-                    }
-                  }}
-                  className="py-3.5 px-4 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl font-black uppercase text-[11px] shadow-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-                >
-                  <i className="fab fa-chrome text-blue-600"></i>
-                  <span>Abrir en Chrome</span>
-                </button>
-              </div>
-
-              {/* Vista previa limpia de la imagen */}
-              <div className="mt-4 p-3 bg-white rounded-2xl border border-gray-200 shadow-inner text-center">
-                <div className="text-[10px] uppercase font-black tracking-wider text-slate-400 mb-2">Vista Previa del Voucher (Imagen)</div>
-                <div className="max-h-[40vh] overflow-y-auto rounded-xl border border-gray-100 bg-gray-50 flex items-center justify-center p-1">
-                  <img 
-                    src={voucherShareDialog.imageUrl} 
-                    alt={`Voucher ${voucherShareDialog.reservation?.reservationNo}`} 
-                    className="w-full h-auto object-contain rounded-lg cursor-pointer"
-                  />
-                </div>
-                <div className="mt-3 text-[11px] text-slate-500 font-semibold flex items-center justify-center gap-1.5 bg-blue-50 py-2 px-3 rounded-xl border border-blue-100">
-                  <i className="fas fa-hand-pointer text-blue-600"></i>
-                  <span>En Android mantén presionada la imagen para Guardar o Compartir</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 bg-white border-t border-gray-100 flex justify-end">
-              <button 
-                onClick={() => setVoucherShareDialog(null)}
-                className="px-6 py-2.5 bg-gray-100 hover:bg-gray-200 text-slate-700 rounded-xl font-bold text-xs uppercase transition-all"
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showVoucherModal.show && showVoucherModal.reservation && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-4xl rounded-[40px] shadow-2xl overflow-hidden my-8 animate-in zoom-in duration-300">
-            <div className="bg-[#0a305e] p-6 text-white flex justify-between items-center">
+        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-2 sm:p-4 overflow-y-auto modal-overlay">
+          <div className="bg-white w-full max-w-4xl rounded-[32px] sm:rounded-[40px] shadow-2xl overflow-hidden my-auto animate-in zoom-in duration-200 modal-card flex flex-col max-h-[96vh]">
+            <div className="bg-[#0a305e] px-6 py-4 sm:p-6 text-white flex justify-between items-center no-print shrink-0">
               <div className="flex items-center gap-3">
                 <i className="fas fa-file-invoice text-2xl text-blue-300"></i>
-                <h3 className="text-xl font-black uppercase">Vista Previa de Voucher</h3>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-black uppercase tracking-wide">Voucher de Confirmación</h3>
+                  <p className="text-[11px] text-blue-200 font-medium">#{showVoucherModal.reservation.reservationNo} - {showVoucherModal.reservation.name}</p>
+                </div>
               </div>
-              <button onClick={() => setShowVoucherModal({ show: false, reservation: null })} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-all">
+              <button 
+                onClick={() => setShowVoucherModal({ show: false, reservation: null })} 
+                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 text-white transition-all"
+                title="Cerrar"
+              >
                 <i className="fas fa-times text-xl"></i>
               </button>
             </div>
-            <div className="p-6 md:p-10 max-h-[65vh] overflow-y-auto bg-gray-50">
+            
+            <div className="p-3 sm:p-6 md:p-8 overflow-y-auto bg-gray-50 flex-1">
               <VoucherPreview 
                 id="voucher-modal-print"
                 reservation={showVoucherModal.reservation} 
@@ -757,24 +618,24 @@ const App: React.FC = () => {
                 language={previewLanguage}
               />
             </div>
-            <div className="p-6 md:p-8 bg-white border-t border-gray-100 flex flex-col sm:flex-row gap-4">
+
+            <div className="p-4 sm:p-6 bg-white border-t border-gray-100 flex flex-col sm:flex-row gap-3 sm:gap-4 no-print shrink-0">
               <button 
                 onClick={() => {
                   handleEdit(showVoucherModal.reservation!);
                   setShowVoucherModal({ show: false, reservation: null });
                 }} 
-                className="flex-1 py-4 px-6 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
+                className="flex-1 py-4 px-6 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
               >
                 <i className="fas fa-edit text-base"></i> EDITAR
               </button>
               
               <button 
-                onClick={() => handleShareOrDownload(showVoucherModal.reservation!, 'voucher-modal-print', previewLanguage)} 
-                disabled={isExportingPDF}
-                className="flex-[2] py-4 px-6 bg-[#0a305e] hover:bg-blue-900 text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                onClick={handlePrintVoucher} 
+                className="flex-[2] py-4 px-6 bg-[#0a305e] hover:bg-blue-900 text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-3 active:scale-[0.98]"
               >
-                <i className={`fas ${isExportingPDF ? 'fa-spinner fa-spin' : 'fa-share-nodes'} text-base`}></i>
-                {isExportingPDF ? 'PREPARANDO VOUCHER...' : 'COMPARTIR / DESCARGAR VOUCHER'}
+                <i className="fas fa-print text-lg text-emerald-400"></i>
+                <span>IMPRIMIR / GUARDAR COMO PDF</span>
               </button>
             </div>
           </div>
@@ -1249,20 +1110,19 @@ const App: React.FC = () => {
                     pdfSingleTourIndex={pdfSingleTourIndex}
                     language={previewLanguage}
                   />
-                  <div className="flex justify-center flex-wrap gap-4 mt-12 px-4 max-w-2xl mx-auto">
+                  <div className="flex justify-center flex-wrap gap-4 mt-12 px-4 max-w-2xl mx-auto no-print">
                     <button 
                       onClick={() => handleEdit(currentVoucher)} 
-                      className="flex-1 bg-amber-500 hover:bg-amber-600 text-white px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[120px] flex items-center justify-center gap-2"
+                      className="flex-1 bg-amber-500 hover:bg-amber-600 text-white px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[120px] flex items-center justify-center gap-2 active:scale-[0.98]"
                     >
                       <i className="fas fa-edit"></i> EDITAR
                     </button>
                     <button 
-                      onClick={() => handleShareOrDownload(currentVoucher, 'voucher-to-print', previewLanguage)} 
-                      disabled={isExportingPDF}
-                      className="flex-[2] bg-[#0a305e] hover:bg-blue-900 text-white px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-xl transition-all min-w-[220px] flex items-center justify-center gap-2 disabled:opacity-50"
+                      onClick={handlePrintVoucher} 
+                      className="flex-[2] bg-[#0a305e] hover:bg-blue-900 text-white px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-xl transition-all min-w-[220px] flex items-center justify-center gap-2 active:scale-[0.98]"
                     >
-                      <i className={`fas ${isExportingPDF ? 'fa-spinner fa-spin' : 'fa-share-nodes'}`}></i>
-                      {isExportingPDF ? 'PREPARANDO...' : 'COMPARTIR / DESCARGAR VOUCHER'}
+                      <i className="fas fa-print text-emerald-400 text-base"></i>
+                      <span>IMPRIMIR / GUARDAR COMO PDF</span>
                     </button>
                   </div>
                 </div>
