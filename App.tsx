@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Reservation, TransferLeg, TourLeg, CircuitoLeg } from './types';
 import { CONTACTS, COMPANY_EMAIL, SHEET_NAME, Logo, TOUR_LIST } from './constants';
 import { getWhatsAppLink, generateWhatsAppMessage, downloadAsPDF } from './utils';
+import { parseReservationWithAI } from './geminiService';
 import VoucherPreview from './components/VoucherPreview';
 
 const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit?gid=0#gid=0";
@@ -404,23 +405,14 @@ const App: React.FC = () => {
   };
 
   const handleAIParsing = async () => {
-    if (!aiInputText.trim()) return;
+    if (!aiInputText.trim()) {
+      showUIMessage("⚠️ Escribe o pega información en el cuadro de texto para autocompletar.");
+      return;
+    }
     setIsParsingAI(true);
     try {
-      const response = await fetch('/api/parse-reservation', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text: aiInputText.trim() }),
-      });
+      const parsedData = await parseReservationWithAI(aiInputText);
 
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Error al procesar la reserva con IA');
-      }
-
-      const parsedData = result.data;
       if (parsedData && typeof parsedData === 'object') {
         setFormData(prev => {
           const newData = { ...prev };

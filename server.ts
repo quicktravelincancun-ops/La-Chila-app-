@@ -187,14 +187,13 @@ IMPORTANTE: Extrae SIEMPRE todos los campos que aparezcan en el texto (personas,
     }
 
     let cleanText = responseText.trim();
-    if (cleanText.startsWith("```")) {
-      cleanText = cleanText.replace(/^```(?:json)?\s*/i, "");
-      cleanText = cleanText.replace(/\s*```$/, "");
-      cleanText = cleanText.trim();
-    }
+    cleanText = cleanText.replace(/^```(?:json)?\s*/gi, "");
+    cleanText = cleanText.replace(/\s*```$/gi, "");
+    cleanText = cleanText.replace(/```(?:json)?/gi, "");
+    cleanText = cleanText.replace(/```/g, "");
     const firstBrace = cleanText.indexOf('{');
     const lastBrace = cleanText.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
       cleanText = cleanText.substring(firstBrace, lastBrace + 1);
     }
     const parsedData = JSON.parse(cleanText);

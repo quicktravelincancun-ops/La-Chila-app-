@@ -148,6 +148,7 @@ export interface PDFGenerationResult {
 }
 
 export const openLinkInBlank = (url: string, downloadName?: string) => {
+  if (!url) return;
   try {
     const a = document.createElement('a');
     a.href = url;
@@ -157,26 +158,21 @@ export const openLinkInBlank = (url: string, downloadName?: string) => {
     if (downloadName) {
       a.setAttribute('download', downloadName);
     }
-    a.style.position = 'fixed';
-    a.style.left = '-9999px';
-    a.style.top = '-9999px';
+    a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
       if (document.body.contains(a)) {
         document.body.removeChild(a);
       }
-    }, 2000);
+    }, 1500);
   } catch (err) {
-    console.warn('Error al disparar click en enlace _blank:', err);
-  }
-
-  // Fallback con window.open forzando _blank
-  try {
-    const win = window.open(url, '_blank', 'noopener,noreferrer');
-    if (win) win.focus();
-  } catch (err) {
-    console.warn('window.open fallback fue bloqueado o no permitido:', err);
+    console.warn('Error al abrir enlace con target _blank:', err);
+    try {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      console.warn('Fallback window.open bloqueado:', e);
+    }
   }
 };
 
