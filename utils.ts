@@ -176,6 +176,14 @@ export const openLinkInBlank = (url: string, downloadName?: string) => {
   }
 };
 
+export const printVoucher = () => {
+  try {
+    window.print();
+  } catch (err) {
+    console.warn('Error al invocar window.print():', err);
+  }
+};
+
 export const downloadAsPDF = async (
   elementIdOrElement: string | HTMLElement, 
   filename: string,

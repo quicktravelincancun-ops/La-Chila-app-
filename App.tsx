@@ -602,6 +602,13 @@ const App: React.FC = () => {
     }
   };
 
+  const handlePrintNative = async (lang: 'es' | 'en' = previewLanguage) => {
+    setPreviewLanguage(lang);
+    showUIMessage("🖨️ Abriendo cuadro para imprimir / guardar PDF...");
+    await sleep(150);
+    window.print();
+  };
+
   const triggerWhatsAppModal = (type: 'driver' | 'staff' | 'customer') => {
     let defaultNum = '';
     let label = '';
@@ -647,9 +654,9 @@ const App: React.FC = () => {
       )}
 
       {showVoucherModal.show && showVoucherModal.reservation && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 overflow-y-auto has-printable-voucher">
           <div className="bg-white w-full max-w-4xl rounded-[40px] shadow-2xl overflow-hidden my-8 animate-in zoom-in duration-300">
-            <div className="bg-[#0a305e] p-6 text-white flex justify-between items-center">
+            <div className="bg-[#0a305e] p-6 text-white flex justify-between items-center modal-header-print no-print">
               <div className="flex items-center gap-3">
                 <i className="fas fa-file-invoice text-2xl text-blue-300"></i>
                 <h3 className="text-xl font-black uppercase">Vista Previa de Voucher</h3>
@@ -664,33 +671,23 @@ const App: React.FC = () => {
                 reservation={showVoucherModal.reservation} 
                 pdfSingleTourIndex={pdfSingleTourIndex}
                 language={previewLanguage}
+                className="printable-voucher"
               />
             </div>
-            <div className="p-8 bg-white border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="p-6 md:p-8 bg-white border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 modal-footer-print no-print">
               <button 
-                onClick={() => {
-                  handleEdit(showVoucherModal.reservation!);
-                  setShowVoucherModal({ show: false, reservation: null });
-                }} 
-                className="px-4 py-4 bg-orange-500 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-orange-600 transition-all flex items-center justify-center gap-2"
+                onClick={() => handlePrintNative(previewLanguage)} 
+                className="col-span-1 sm:col-span-2 lg:col-span-2 px-6 py-4 bg-[#0a305e] hover:bg-[#072142] text-white rounded-2xl font-black uppercase text-[11px] shadow-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.01]"
               >
-                <i className="fas fa-edit"></i> Editar
-              </button>
-              
-              <button 
-                onClick={() => handleExportPDF('es', showVoucherModal.reservation!, 'voucher-modal-print')} 
-                disabled={isExportingPDF}
-                className="px-4 py-4 bg-red-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-red-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                <i className="fas fa-file-pdf"></i> {isExportingPDF && previewLanguage === 'es' ? 'Generando...' : 'PDF ES'}
+                <i className="fas fa-print text-lg text-cyan-300"></i> IMPRIMIR / GUARDAR PDF
               </button>
 
               <button 
-                onClick={() => handleExportPDF('en', showVoucherModal.reservation!, 'voucher-modal-print')} 
-                disabled={isExportingPDF}
-                className="px-4 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                onClick={() => setPreviewLanguage(prev => prev === 'es' ? 'en' : 'es')} 
+                className="px-4 py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-black uppercase text-[10px] transition-all flex items-center justify-center gap-2"
+                title="Cambiar idioma del voucher"
               >
-                <i className="fas fa-file-pdf"></i> {isExportingPDF && previewLanguage === 'en' ? 'Generating...' : 'PDF EN'}
+                <i className="fas fa-language text-sm text-blue-600"></i> Idioma: <span className="text-blue-700 font-bold">{previewLanguage.toUpperCase()}</span>
               </button>
 
               <button 
@@ -701,8 +698,18 @@ const App: React.FC = () => {
               </button>
 
               <button 
+                onClick={() => {
+                  handleEdit(showVoucherModal.reservation!);
+                  setShowVoucherModal({ show: false, reservation: null });
+                }} 
+                className="px-4 py-4 bg-orange-500 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-orange-600 transition-all flex items-center justify-center gap-2"
+              >
+                <i className="fas fa-edit"></i> Editar
+              </button>
+
+              <button 
                 onClick={() => setShowVoucherModal({ show: false, reservation: null })} 
-                className="px-4 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black uppercase text-[10px] hover:bg-gray-200 transition-all flex items-center justify-center"
+                className="col-span-1 sm:col-span-2 lg:col-span-5 py-3 bg-gray-100 text-gray-600 rounded-2xl font-black uppercase text-[10px] hover:bg-gray-200 transition-all flex items-center justify-center"
               >
                 Cerrar
               </button>
@@ -730,15 +737,25 @@ const App: React.FC = () => {
 
             <div className="p-6 space-y-3 bg-gray-50/50">
               <p className="text-xs text-slate-600 text-center font-medium leading-relaxed mb-4">
-                El PDF se abre con <span className="font-bold text-slate-800">target=&apos;_blank&apos;</span> para evitar que la app de Android se reinicie. Puedes abrirlo con cualquiera de las siguientes opciones:
+                Elige cómo visualizar o guardar tu voucher sin requerir permisos de almacenamiento en Android:
               </p>
+
+              <button 
+                onClick={() => {
+                  setPdfReadyModal(null);
+                  handlePrintNative(previewLanguage);
+                }}
+                className="w-full py-4 px-5 bg-[#0a305e] hover:bg-[#072142] text-white font-black uppercase text-[11px] rounded-2xl flex items-center justify-center gap-3 shadow-lg transition-all hover:scale-[1.01]"
+              >
+                <i className="fas fa-print text-base text-cyan-300"></i> IMPRIMIR / GUARDAR PDF
+              </button>
 
               {pdfReadyModal.googleDocsUrl && (
                 <a 
                   href={pdfReadyModal.googleDocsUrl} 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="w-full py-4 px-5 bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-[11px] rounded-2xl flex items-center justify-center gap-3 shadow-lg shadow-blue-500/20 transition-all hover:scale-[1.01]"
+                  className="w-full py-3.5 px-5 bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-[11px] rounded-2xl flex items-center justify-center gap-3 shadow-md transition-all hover:scale-[1.01]"
                 >
                   <i className="fab fa-google text-base"></i> Abrir en Visor Google Docs
                 </a>
@@ -749,21 +766,9 @@ const App: React.FC = () => {
                   href={pdfReadyModal.serverUrl || pdfReadyModal.blobUrl} 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="w-full py-4 px-5 bg-slate-800 hover:bg-slate-900 text-white font-black uppercase text-[11px] rounded-2xl flex items-center justify-center gap-3 shadow-md transition-all hover:scale-[1.01]"
+                  className="w-full py-3.5 px-5 bg-slate-800 hover:bg-slate-900 text-white font-black uppercase text-[11px] rounded-2xl flex items-center justify-center gap-3 shadow-md transition-all hover:scale-[1.01]"
                 >
-                  <i className="fas fa-external-link-alt text-sm"></i> Abrir PDF Directo (target=&apos;_blank&apos;)
-                </a>
-              )}
-
-              {(pdfReadyModal.downloadUrl || pdfReadyModal.blobUrl) && (
-                <a 
-                  href={pdfReadyModal.downloadUrl || pdfReadyModal.blobUrl} 
-                  download={pdfReadyModal.filename}
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="w-full py-3.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[11px] rounded-2xl flex items-center justify-center gap-3 shadow-md transition-all hover:scale-[1.01]"
-                >
-                  <i className="fas fa-download text-sm"></i> Descargar Archivo
+                  <i className="fas fa-external-link-alt text-sm"></i> Abrir en Nueva Pestaña (target=&apos;_blank&apos;)
                 </a>
               )}
 
@@ -1245,27 +1250,27 @@ const App: React.FC = () => {
                     reservation={currentVoucher} 
                     pdfSingleTourIndex={pdfSingleTourIndex}
                     language={previewLanguage}
+                    className={showVoucherModal.show ? 'hidden-from-print' : 'printable-voucher'}
                   />
-                  <div className="flex justify-center flex-wrap gap-4 mt-12 px-4">
+                  <div className="flex justify-center flex-wrap gap-4 mt-12 px-4 no-print">
+                    <button 
+                      onClick={() => handlePrintNative(previewLanguage)} 
+                      className="flex-2 bg-[#0a305e] hover:bg-[#072142] text-white px-8 py-4 rounded-[24px] font-black uppercase text-[11px] shadow-xl transition-all min-w-[200px] flex items-center justify-center gap-2 hover:scale-[1.01]"
+                    >
+                      <i className="fas fa-print text-base text-cyan-300"></i> IMPRIMIR / GUARDAR PDF
+                    </button>
+                    <button 
+                      onClick={() => setPreviewLanguage(prev => prev === 'es' ? 'en' : 'es')} 
+                      className="bg-slate-100 text-slate-700 px-5 py-4 rounded-[24px] font-black uppercase text-[10px] shadow-sm hover:bg-slate-200 transition-all flex items-center justify-center gap-2"
+                      title="Cambiar idioma del voucher"
+                    >
+                      <i className="fas fa-language text-blue-600"></i> {previewLanguage.toUpperCase()}
+                    </button>
                     <button 
                       onClick={() => handleEdit(currentVoucher)} 
                       className="flex-1 bg-orange-500 text-white px-6 py-4 rounded-[24px] font-black uppercase text-[10px] shadow-lg hover:bg-orange-600 transition-all min-w-[120px] flex items-center justify-center gap-2"
                     >
                       <i className="fas fa-edit"></i> Editar
-                    </button>
-                    <button 
-                      onClick={() => handleExportPDF('es', currentVoucher, 'voucher-to-print')} 
-                      disabled={isExportingPDF}
-                      className="flex-1 bg-red-600 text-white px-6 py-4 rounded-[24px] font-black uppercase text-[10px] shadow-lg hover:bg-red-700 transition-all min-w-[140px] flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      <i className="fas fa-file-pdf"></i> {isExportingPDF && previewLanguage === 'es' ? 'Generando...' : 'PDF (ES)'}
-                    </button>
-                    <button 
-                      onClick={() => handleExportPDF('en', currentVoucher, 'voucher-to-print')} 
-                      disabled={isExportingPDF}
-                      className="flex-1 bg-indigo-600 text-white px-6 py-4 rounded-[24px] font-black uppercase text-[10px] shadow-lg hover:bg-indigo-700 transition-all min-w-[140px] flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      <i className="fas fa-file-pdf"></i> {isExportingPDF && previewLanguage === 'en' ? 'Generating...' : 'PDF (EN)'}
                     </button>
                     <button 
                       onClick={() => triggerWhatsAppModal('driver')} 

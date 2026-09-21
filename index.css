@@ -1,0 +1,125 @@
+/* ==========================================================================
+   ESTILOS GENERALES Y DE IMPRESIÓN (@media print)
+   Optimizado para Android WebView (AppsGeyser, Chrome, Safari) y navegadores web.
+   Permite guardar como PDF nativo mediante window.print() sin requerir permisos
+   de almacenamiento Android (WRITE_EXTERNAL_STORAGE).
+   ========================================================================== */
+
+@page {
+  size: portrait;
+  margin: 6mm 8mm;
+}
+
+/* Reglas de impresión para hoja limpia */
+@media print {
+  /* 1. Fondo blanco y texto nítido */
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 100% !important;
+    width: 100% !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 2. Ocultar todos los elementos de la interfaz de la app */
+  header,
+  aside,
+  nav,
+  button,
+  input,
+  select,
+  textarea,
+  .no-print,
+  .no-print *,
+  .hidden-from-print,
+  .hidden-from-print *,
+  .fixed.inset-0:not(.has-printable-voucher),
+  #root > div > aside,
+  #root > div > div > header,
+  #root > div > div > main > form,
+  #root > div > div > main > div:not(#voucher-preview-section):not(.print-container),
+  .whatsapp-modal,
+  .toast-message {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* 3. Desactivar fondos oscuros, desenfoques y desbordamientos en modals */
+  #root,
+  #root > div,
+  .fixed,
+  .relative,
+  .overflow-hidden,
+  .overflow-y-auto,
+  .backdrop-blur-md,
+  .bg-slate-900\/60,
+  .bg-slate-900\/40 {
+    position: static !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    transform: none !important;
+  }
+
+  /* 4. Ocultar encabezados y barras de botones de modales */
+  .modal-header-print,
+  .modal-footer-print,
+  .modal-buttons-print {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* 5. Aislamiento estricto: ocultar todo por defecto y mostrar solo el voucher */
+  body * {
+    visibility: hidden;
+  }
+
+  /* 6. Voucher imprimible */
+  .printable-voucher,
+  .printable-voucher * {
+    visibility: visible !important;
+  }
+
+  .printable-voucher {
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 12px !important;
+    background: #ffffff !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Forzar que elementos de marca mantengan sus colores en la impresión */
+  .printable-voucher .bg-\[\#0a305e\],
+  .printable-voucher .text-\[\#0a305e\],
+  .printable-voucher .bg-slate-50,
+  .printable-voucher .bg-blue-50,
+  .printable-voucher .bg-orange-50,
+  .printable-voucher .border {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
