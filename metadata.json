@@ -1,0 +1,10 @@
+{
+  "name": "reservaciones chila 2 CIRCUITO",
+  "description": "Sistema de gestión de vouchers para traslados de llegada y salida en Cancún, con integración de WhatsApp, Google Maps y exportación de datos.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
