@@ -441,11 +441,11 @@ const App: React.FC = () => {
         showUIMessage("✅ Datos extraídos y autocompletados con éxito.");
         setAiInputText('');
       } else {
-        showUIMessage("No se pudo procesar el texto con IA. Inténtalo de nuevo.");
+        showUIMessage("No se pudo procesar el texto. Verifica los datos.");
       }
     } catch (error: any) {
-      console.error("Error parsing AI:", error);
-      showUIMessage("No se pudo procesar el texto con IA. Inténtalo de nuevo.");
+      console.warn("Error parsing reservation text:", error);
+      showUIMessage("No se pudo procesar el texto. Verifica los datos.");
     } finally {
       setIsParsingAI(false);
     }
