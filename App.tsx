@@ -11,6 +11,7 @@ import {
   openInSystemBrowser, 
   shareOrPrintVoucher 
 } from './utils';
+import { parseReservationText } from './geminiService';
 import VoucherPreview from './components/VoucherPreview';
 
 const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit?gid=0#gid=0";
@@ -415,26 +416,14 @@ const App: React.FC = () => {
     if (!aiInputText.trim()) return;
     setIsParsingAI(true);
     try {
-      const response = await fetch('/api/parse-reservation', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text: aiInputText.trim() }),
-      });
+      const parsedData = await parseReservationText(aiInputText.trim());
 
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Error al procesar la reserva con IA');
-      }
-
-      const parsedData = result.data;
-      if (parsedData && typeof parsedData === 'object') {
+      if (parsedData && typeof parsedData === 'object' && Object.keys(parsedData).length > 0) {
         setFormData(prev => {
           const newData = { ...prev };
           Object.keys(parsedData).forEach(key => {
-            if (parsedData[key] !== undefined && parsedData[key] !== null && parsedData[key] !== '') {
-              (newData as any)[key] = parsedData[key];
+            if ((parsedData as any)[key] !== undefined && (parsedData as any)[key] !== null && (parsedData as any)[key] !== '') {
+              (newData as any)[key] = (parsedData as any)[key];
             }
           });
           
@@ -452,11 +441,11 @@ const App: React.FC = () => {
         showUIMessage("✅ Datos extraídos y autocompletados con éxito.");
         setAiInputText('');
       } else {
-        showUIMessage("⚠️ No se pudieron extraer datos del texto.");
+        showUIMessage("No se pudo procesar el texto con IA. Inténtalo de nuevo.");
       }
     } catch (error: any) {
       console.error("Error parsing AI:", error);
-      showUIMessage(`❌ ${error?.message || "Error al analizar el texto. Intente de nuevo."}`);
+      showUIMessage("No se pudo procesar el texto con IA. Inténtalo de nuevo.");
     } finally {
       setIsParsingAI(false);
     }
