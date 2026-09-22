@@ -83,8 +83,8 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", service: "quick-travel-cancun-api" });
 });
 
-// API endpoint for Gemini Auto-complete parsing
-app.post("/api/parse-reservation", async (req, res) => {
+// API endpoint for Gemini Auto-complete parsing (handles both /api/parse-reservation and /api/autocomplete)
+const handleParseReservation = async (req: express.Request, res: express.Response) => {
   try {
     const { text } = req.body;
     if (!text || typeof text !== "string" || !text.trim()) {
@@ -226,7 +226,10 @@ IMPORTANTE: Extrae SIEMPRE todos los campos que aparezcan en el texto (personas,
       error: error?.message || "Ocurrió un error al procesar el texto con IA.",
     });
   }
-});
+};
+
+app.post("/api/parse-reservation", handleParseReservation);
+app.post("/api/autocomplete", handleParseReservation);
 
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

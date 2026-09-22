@@ -214,9 +214,13 @@ Devuelve ÚNICAMENTE un objeto JSON válido con los campos extraídos.`;
       }
 
       if (cleaned) {
-        const parsed = JSON.parse(cleaned);
-        if (parsed && typeof parsed === 'object') {
-          return normalizeReservationData(parsed);
+        try {
+          const parsed = JSON.parse(cleaned);
+          if (parsed && typeof parsed === 'object') {
+            return normalizeReservationData(parsed);
+          }
+        } catch (jsonParseErr) {
+          console.warn("Error parsing Gemini JSON response, falling back to structured prompt parsing:", jsonParseErr);
         }
       }
     } catch (geminiError) {
@@ -225,9 +229,13 @@ Devuelve ÚNICAMENTE un objeto JSON válido con los campos extraídos.`;
   }
 
   // Fallback: safely structured prompt parsing without throwing unhandled JSON errors
-  const fallbackData = safelyStructuredPromptParsing(text);
-  if (Object.keys(fallbackData).length > 0) {
-    return normalizeReservationData(fallbackData);
+  try {
+    const fallbackData = safelyStructuredPromptParsing(text);
+    if (fallbackData && Object.keys(fallbackData).length > 0) {
+      return normalizeReservationData(fallbackData);
+    }
+  } catch (fallbackError) {
+    console.warn("Structured prompt parser encountered an issue:", fallbackError);
   }
 
   throw new Error("No se pudo procesar el texto con IA. Inténtalo de nuevo.");
