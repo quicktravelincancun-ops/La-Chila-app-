@@ -1,4 +1,5 @@
 import { extractReservationFieldsWithRegex } from '../geminiService';
+import { toMexicanDateFormat } from '../utils';
 import { GoogleGenAI } from '@google/genai';
 
 type VercelRequest = any;
@@ -37,7 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       try {
         const ai = new GoogleGenAI({ apiKey });
         const currentDate = new Date().toISOString().split('T')[0];
-        const systemPrompt = `Eres un asistente experto en logística para Quick Travel Cancún. Extrae todos los datos relevantes del texto en JSON válido. Fecha actual: ${currentDate}.`;
+        const systemPrompt = `Eres un asistente experto en logística para Quick Travel Cancún. Extrae todos los datos relevantes del texto en JSON válido. REGLA: Todas las fechas deben estar estrictamente en formato mexicano DD/MM/YYYY (ejemplo: 27/09/2026). Fecha actual: ${currentDate}.`;
 
         const response = await ai.models.generateContent({
           model: 'gemini-3.8-flash',
@@ -56,6 +57,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (cleaned) {
           const parsed = JSON.parse(cleaned);
           if (parsed && typeof parsed === 'object') {
+            if (parsed.dateArrival) parsed.dateArrival = toMexicanDateFormat(parsed.dateArrival);
+            if (parsed.dateDeparture) parsed.dateDeparture = toMexicanDateFormat(parsed.dateDeparture);
             return res.status(200).json({ success: true, data: parsed });
           }
         }
@@ -66,6 +69,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // High-precision regex fallback
     const extracted = extractReservationFieldsWithRegex(text);
+    if (extracted.dateArrival) extracted.dateArrival = toMexicanDateFormat(extracted.dateArrival);
+    if (extracted.dateDeparture) extracted.dateDeparture = toMexicanDateFormat(extracted.dateDeparture);
     return res.status(200).json({
       success: true,
       data: extracted

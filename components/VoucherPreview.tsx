@@ -2,7 +2,7 @@
 import React from 'react';
 import { Reservation, TourLeg } from '../types';
 import { Logo } from '../constants';
-import { getGoogleMapsLink } from '../utils';
+import { getGoogleMapsLink, formatDateForLanguage } from '../utils';
 
 export type Language = 'es' | 'en';
 
@@ -141,6 +141,7 @@ const VALUE_MAP: Record<string, string> = {
 };
 
 const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleTourIndex = null, language = 'es', id = 'voucher-to-print' }) => {
+  const lang: 'es' | 'en' = language === 'en' ? 'en' : 'es';
   const isPdfMode = pdfSingleTourIndex !== null;
   const showArrival = !isPdfMode && (reservation.serviceType === "Llegada y Salida" || reservation.serviceType === "Solo Llegada");
   const showDeparture = !isPdfMode && (reservation.serviceType === "Llegada y Salida" || reservation.serviceType === "Solo Salida");
@@ -148,11 +149,11 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
   const showTour = reservation.serviceType === "Tour o Excursión";
   const showCircuito = reservation.serviceType === "Circuito";
   
-  const t = TRANSLATIONS[language];
+  const t = TRANSLATIONS[lang];
 
   const tr = (val: string | undefined | null) => {
     if (!val) return '---';
-    if (language === 'es') return val;
+    if (lang === 'es') return val;
     return VALUE_MAP[val] || val;
   };
 
@@ -247,7 +248,7 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
                   <DetailRow label={t.name} value={reservation.arrivalName} className="col-span-2" highlight />
                   <DetailRow label={t.meetingPoint} value={reservation.origin} />
                   <DetailRow label={t.destination} value={reservation.arrivalDestination} isLink />
-                  <DetailRow label={t.date} value={reservation.dateArrival} />
+                  <DetailRow label={t.date} value={formatDateForLanguage(reservation.dateArrival, lang)} />
                   <DetailRow label={t.timeEst} value={reservation.arrivalTime} />
                   <DetailRow label={t.flight} value={`${reservation.airlineArrival} ${reservation.flightNoArrival}`} />
                   <DetailRow label={t.pax} value={reservation.peopleCountArrival} highlight />
@@ -262,7 +263,7 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
                   <DetailRow label={t.name} value={reservation.departureName || reservation.name} className="col-span-2" highlight />
                   <DetailRow label={t.pickup} value={reservation.originDeparture} isLink />
                   <DetailRow label={t.to} value={reservation.departureDestination} />
-                  <DetailRow label={t.date} value={reservation.dateDeparture} />
+                  <DetailRow label={t.date} value={formatDateForLanguage(reservation.dateDeparture, lang)} />
                   <DetailRow label={t.pickupHotel} value={reservation.departureTimeHotel} className="text-[#f05a28]" highlight />
                   <DetailRow label={t.flightTime} value={reservation.departureTimeFlight} />
                   <DetailRow label={t.pax} value={reservation.peopleCountDeparture || reservation.peopleCount} highlight />
@@ -277,7 +278,7 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
                   <DetailRow label={t.excursion} value={tour.name || '---'} highlight className="col-span-2" />
                   <DetailRow label={t.meetingPoint} value={tour.origin} isLink />
                   <DetailRow label={t.pickup} value={tour.time} className="text-purple-700 font-black" highlight />
-                  <DetailRow label={t.date} value={tour.date} />
+                  <DetailRow label={t.date} value={formatDateForLanguage(tour.date, lang)} />
                   <DetailRow label={t.type} value={tr(tour.type)} />
                   <DetailRow label={t.pax} value={tour.pax || reservation.peopleCount} highlight />
                 </div>
@@ -297,7 +298,7 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
                   <DetailRow label={t.name} value={reservation.departureName || reservation.name} className="col-span-2" highlight />
                   <DetailRow label={t.from} value={reservation.originDeparture} isLink />
                   <DetailRow label={t.until} value={reservation.departureDestination} />
-                  <DetailRow label={t.date} value={reservation.dateDeparture} />
+                  <DetailRow label={t.date} value={formatDateForLanguage(reservation.dateDeparture, lang)} />
                   <DetailRow label={t.startTime} value={reservation.departureTimeHotel} className="text-blue-700 font-black" highlight />
                   <DetailRow label={t.returnTime} value={reservation.departureTimeFlight} />
                   <DetailRow label={t.pax} value={reservation.peopleCountDeparture || reservation.peopleCount} highlight />
@@ -325,7 +326,7 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
                   <DetailRow label={t.name} value={reservation.departureName || reservation.name} className="col-span-2" highlight />
                   <DetailRow label={t.unitType} value={reservation.unitType} />
                   <DetailRow label={t.pax} value={reservation.peopleCountDeparture || reservation.peopleCount} highlight />
-                  <DetailRow label={t.date} value={reservation.dateDeparture} />
+                  <DetailRow label={t.date} value={formatDateForLanguage(reservation.dateDeparture, lang)} />
                 </div>
                 
                 {(reservation.includedThings || reservation.notIncludedThings) && (
@@ -350,7 +351,7 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
                      {reservation.circuitoLegs.map((leg, i) => (
                        <div key={leg.id} className="grid grid-cols-2 gap-x-2 gap-y-1 text-[9px] bg-slate-50/50 p-2 rounded-lg">
                          <span className="font-bold uppercase text-green-600 col-span-2 text-[7px]">{t.day} #{i+1}</span>
-                         <DetailRow label={t.date} value={leg.date} />
+                         <DetailRow label={t.date} value={formatDateForLanguage(leg.date, lang)} />
                          <DetailRow label={t.schedule} value={leg.schedule} />
                          {leg.pricePerDay && <DetailRow label={t.pricePerDay} value={leg.pricePerDay} highlight className="col-span-2" />}
                          <DetailRow label={t.placesToVisit} value={leg.placesToVisit} className="col-span-2" />

@@ -3,6 +3,223 @@ import { Reservation } from './types';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
+export const SPANISH_MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
+
+export const ENGLISH_MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+/**
+ * Converts any date format (YYYY-MM-DD, ISO string, timestamps) to standard Mexican DD/MM/YYYY format.
+ * E.g. "2026-09-27" -> "27/09/2026"
+ */
+export function toMexicanDateFormat(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  const clean = dateStr.trim();
+  if (!clean) return '';
+
+  // Already DD/MM/YYYY
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(clean)) {
+    const [d, m, y] = clean.split('/');
+    return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+  }
+
+  // DD-MM-YYYY
+  if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(clean)) {
+    const [d, m, y] = clean.split('-');
+    return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+  }
+
+  // YYYY-MM-DD or YYYY/MM/DD
+  const isoMatch = clean.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (isoMatch) {
+    const y = isoMatch[1];
+    const m = isoMatch[2].padStart(2, '0');
+    const d = isoMatch[3].padStart(2, '0');
+    return `${d}/${m}/${y}`;
+  }
+
+  // Try parsing with JS Date
+  const parsed = new Date(clean);
+  if (!isNaN(parsed.getTime())) {
+    const d = String(parsed.getDate()).padStart(2, '0');
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const y = parsed.getFullYear();
+    return `${d}/${m}/${y}`;
+  }
+
+  return clean;
+}
+
+/**
+ * Converts Mexican date DD/MM/YYYY to ISO YYYY-MM-DD for native HTML date controls if needed.
+ */
+export function toISOFormat(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  const clean = dateStr.trim();
+  if (!clean) return '';
+
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+    return clean;
+  }
+
+  // DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    const d = dmyMatch[1].padStart(2, '0');
+    const m = dmyMatch[2].padStart(2, '0');
+    const y = dmyMatch[3];
+    return `${y}-${m}-${d}`;
+  }
+
+  return clean;
+}
+
+/**
+ * Formats a date string as "DD de [Mes] de YYYY" (e.g., "27 de Septiembre de 2026").
+ */
+export function formatDateToSpanishLong(dateStr: string | null | undefined): string {
+  if (!dateStr) return '---';
+  const clean = dateStr.trim();
+  if (!clean) return '---';
+
+  // If already in "DD de [Mes] de YYYY" format
+  if (/^\d{1,2}\s+de\s+[A-Za-z]+\s+de\s+\d{4}/i.test(clean)) {
+    return clean;
+  }
+
+  // Check DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const monthIdx = parseInt(dmyMatch[2], 10) - 1;
+    const year = dmyMatch[3];
+    if (monthIdx >= 0 && monthIdx < 12) {
+      return `${day} de ${SPANISH_MONTH_NAMES[monthIdx]} de ${year}`;
+    }
+  }
+
+  // Check YYYY-MM-DD
+  const ymdMatch = clean.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (ymdMatch) {
+    const year = ymdMatch[1];
+    const monthIdx = parseInt(ymdMatch[2], 10) - 1;
+    const day = parseInt(ymdMatch[3], 10);
+    if (monthIdx >= 0 && monthIdx < 12) {
+      return `${day} de ${SPANISH_MONTH_NAMES[monthIdx]} de ${year}`;
+    }
+  }
+
+  return clean;
+}
+
+/**
+ * Formats date for voucher card according to chosen language:
+ * Spanish: "27 de Septiembre de 2026"
+ * English: "September 27, 2026"
+ */
+export function formatDateForLanguage(dateStr: string | null | undefined, lang: 'es' | 'en' = 'es'): string {
+  if (!dateStr) return '---';
+  if (lang === 'es') {
+    return formatDateToSpanishLong(dateStr);
+  }
+  const clean = dateStr.trim();
+  const dmyMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const monthIdx = parseInt(dmyMatch[2], 10) - 1;
+    const year = dmyMatch[3];
+    if (monthIdx >= 0 && monthIdx < 12) {
+      return `${ENGLISH_MONTH_NAMES[monthIdx]} ${day}, ${year}`;
+    }
+  }
+  const ymdMatch = clean.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (ymdMatch) {
+    const year = ymdMatch[1];
+    const monthIdx = parseInt(ymdMatch[2], 10) - 1;
+    const day = parseInt(ymdMatch[3], 10);
+    if (monthIdx >= 0 && monthIdx < 12) {
+      return `${ENGLISH_MONTH_NAMES[monthIdx]} ${day}, ${year}`;
+    }
+  }
+  return clean;
+}
+
+/**
+ * Webhook URL for Google Sheets automatic logging
+ */
+export const GOOGLE_SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxjCU_mXf5cF_jdFFOzXhRnE10h45onjqt8-0u6fpwCtNGlDatWhWWLWpLOTX9JjA1r/exec';
+
+/**
+ * Sends reservation payload to Google Sheets webhook in background (POST request).
+ * Uses text/plain and no-cors to prevent browser CORS preflight blocking with Google Apps Script.
+ */
+export async function sendReservationToGoogleSheets(res: Reservation): Promise<boolean> {
+  try {
+    const flightInfo = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ').trim() ||
+      (res.departureTimeFlight ? `Vuelo ${res.departureTimeFlight}` : '-');
+
+    const destination = res.arrivalDestination || res.departureDestination || res.destination || res.originDeparture || '-';
+
+    const dateFormatted = toMexicanDateFormat(res.dateArrival || res.dateDeparture);
+
+    let amountStr = '0';
+    if (res.toPayUsd > 0) {
+      amountStr = `$${res.toPayUsd} USD`;
+    } else if (res.toPayMxn > 0) {
+      amountStr = `$${res.toPayMxn} MXN`;
+    } else if (res.depositUsd > 0) {
+      amountStr = `Pagado ($${res.depositUsd} USD)`;
+    } else if (res.depositMxn > 0) {
+      amountStr = `Pagado ($${res.depositMxn} MXN)`;
+    }
+
+    const payload = {
+      code: res.reservationNo,
+      passenger: res.name || res.arrivalName || res.departureName || '-',
+      serviceType: res.serviceType + (res.transferSubtype ? ` (${res.transferSubtype})` : ''),
+      date: dateFormatted,
+      flight: flightInfo,
+      destination: destination,
+      pax: res.peopleCount || res.peopleCountArrival || res.peopleCountDeparture || 1,
+      amount: amountStr,
+      // Additional complementary keys to ensure maximum compatibility
+      reservationNo: res.reservationNo,
+      name: res.name || res.arrivalName || res.departureName || '-',
+      dateArrival: toMexicanDateFormat(res.dateArrival),
+      dateDeparture: toMexicanDateFormat(res.dateDeparture),
+      arrivalTime: res.arrivalTime || '',
+      departureTime: res.departureTimeHotel || '',
+      origin: res.origin || res.originDeparture || '-',
+      toPayUsd: res.toPayUsd || 0,
+      toPayMxn: res.toPayMxn || 0,
+      depositUsd: res.depositUsd || 0,
+      depositMxn: res.depositMxn || 0,
+      observations: res.observations || '',
+      timestamp: new Date().toISOString()
+    };
+
+    await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    return true;
+  } catch (err) {
+    console.warn('Google Sheets background webhook error:', err);
+    return false;
+  }
+}
+
 export const getWhatsAppLink = (number: string, message: string) => {
   const numberClean = number.replace(/\D/g, '');
   return `https://wa.me/${numberClean}?text=${encodeURIComponent(message)}`;
@@ -37,7 +254,7 @@ export const generateWhatsAppMessage = (res: Reservation) => {
     msg += `*LLEGADA:*\n`;
     msg += `📍 Origen: ${res.origin}\n`;
     msg += `🏨 Destino: ${res.arrivalDestination}\n`;
-    msg += `📅 Fecha: ${res.dateArrival}\n`;
+    msg += `📅 Fecha: ${formatDateToSpanishLong(res.dateArrival)}\n`;
     msg += `✈️ Vuelo: ${res.flightNoArrival}\n`;
     msg += `🕒 Hora: ${res.arrivalTime}\n`;
     msg += `👤 Pax: ${res.peopleCountArrival}\n\n`;
@@ -47,7 +264,7 @@ export const generateWhatsAppMessage = (res: Reservation) => {
     msg += `*SALIDA:*\n`;
     msg += `📍 Origen: ${res.originDeparture}\n`;
     msg += `🏨 Destino: ${res.departureDestination}\n`;
-    msg += `📅 Fecha: ${res.dateDeparture}\n`;
+    msg += `📅 Fecha: ${formatDateToSpanishLong(res.dateDeparture)}\n`;
     msg += `🚐 *Pick-up:* ${res.departureTimeHotel}\n`;
     msg += `✈️ Vuelo: ${res.departureTimeFlight}\n`;
     msg += `👤 Pax: ${res.peopleCountDeparture}\n\n`;
@@ -57,7 +274,7 @@ export const generateWhatsAppMessage = (res: Reservation) => {
     msg += `*TRASLADO:*\n`;
     msg += `📍 Origen: ${res.originDeparture}\n`;
     msg += `🏨 Destino: ${res.departureDestination}\n`;
-    msg += `📅 Fecha: ${res.dateDeparture}\n`;
+    msg += `📅 Fecha: ${formatDateToSpanishLong(res.dateDeparture)}\n`;
     msg += `🕒 *Hora Inicio:* ${res.departureTimeHotel}\n`;
     msg += `🕒 *Hora Regreso:* ${res.departureTimeFlight}\n`;
     msg += `👤 Pax: ${res.peopleCountDeparture}\n\n`;
@@ -66,7 +283,7 @@ export const generateWhatsAppMessage = (res: Reservation) => {
       msg += `*TRAMOS ADICIONALES:*\n`;
       res.extraLegs.forEach((leg, i) => {
         msg += `[${i+1}] 📍 ${leg.origin} -> 🏨 ${leg.destination}\n`;
-        msg += `📅 ${leg.date} | 🕒 ${leg.startTime} - ${leg.returnTime} | 👤 Pax: ${leg.pax}\n\n`;
+        msg += `📅 ${formatDateToSpanishLong(leg.date)} | 🕒 ${leg.startTime} - ${leg.returnTime} | 👤 Pax: ${leg.pax}\n\n`;
       });
     }
   }
@@ -76,7 +293,7 @@ export const generateWhatsAppMessage = (res: Reservation) => {
     msg += `🌟 *Tour:* ${res.tourName || '---'}\n`;
     msg += `📋 Tipo: ${res.tourType || '---'}\n`;
     msg += `📍 Hotel/Punto: ${res.originDeparture}\n`;
-    msg += `📅 Fecha: ${res.dateDeparture}\n`;
+    msg += `📅 Fecha: ${formatDateToSpanishLong(res.dateDeparture)}\n`;
     msg += `🚐 *Pick-up:* ${res.departureTimeHotel}\n`;
     msg += `👤 Pax: ${res.peopleCountDeparture}\n\n`;
 
@@ -86,7 +303,7 @@ export const generateWhatsAppMessage = (res: Reservation) => {
         msg += `🌟 *Tour:* ${tour.tourName || '---'}\n`;
         msg += `📋 Tipo: ${tour.tourType || '---'}\n`;
         msg += `📍 Hotel/Punto: ${tour.originDeparture}\n`;
-        msg += `📅 Fecha: ${tour.dateDeparture}\n`;
+        msg += `📅 Fecha: ${formatDateToSpanishLong(tour.dateDeparture)}\n`;
         msg += `🚐 *Pick-up:* ${tour.departureTimeHotel}\n`;
         msg += `👤 Pax: ${tour.peopleCountDeparture}\n`;
         if (tour.observations) {
@@ -101,7 +318,7 @@ export const generateWhatsAppMessage = (res: Reservation) => {
     msg += `*CIRCUITO:*\n`;
     msg += `🚐 Tipo de Unidad: ${res.unitType || '---'}\n`;
     msg += `👤 Pax: ${res.peopleCountDeparture}\n`;
-    msg += `📅 Fecha Inicio: ${res.dateDeparture}\n\n`;
+    msg += `📅 Fecha Inicio: ${formatDateToSpanishLong(res.dateDeparture)}\n\n`;
 
     if (res.includedThings) {
       msg += `✅ *Incluye:*\n${res.includedThings}\n\n`;
@@ -113,7 +330,7 @@ export const generateWhatsAppMessage = (res: Reservation) => {
     if (res.circuitoLegs && res.circuitoLegs.length > 0) {
       msg += `*ITINERARIO:*\n`;
       res.circuitoLegs.forEach((leg, i) => {
-        msg += `*Día ${i + 1} - ${leg.date}*\n`;
+        msg += `*Día ${i + 1} - ${formatDateToSpanishLong(leg.date)}*\n`;
         msg += `🕒 Horario: ${leg.schedule}\n`;
         if (leg.pricePerDay) {
           msg += `💵 Precio: ${leg.pricePerDay}\n`;
@@ -797,7 +1014,7 @@ export const generateVoucherHTML = (
                   ${renderDetailRow(t.name, reservation.arrivalName, false, true, 'normal', 2)}
                   ${renderDetailRow(t.meetingPoint, reservation.origin)}
                   ${renderDetailRow(t.destination, reservation.arrivalDestination, true)}
-                  ${renderDetailRow(t.date, reservation.dateArrival)}
+                  ${renderDetailRow(t.date, formatDateForLanguage(reservation.dateArrival, language))}
                   ${renderDetailRow(t.timeEst, reservation.arrivalTime)}
                   ${renderDetailRow(t.flight, `${reservation.airlineArrival || ''} ${reservation.flightNoArrival || ''}`.trim())}
                   ${renderDetailRow(t.pax, reservation.peopleCountArrival, false, true)}
@@ -817,7 +1034,7 @@ export const generateVoucherHTML = (
                   ${renderDetailRow(t.name, reservation.departureName || reservation.name, false, true, 'normal', 2)}
                   ${renderDetailRow(t.pickup, reservation.originDeparture, true)}
                   ${renderDetailRow(t.to, reservation.departureDestination)}
-                  ${renderDetailRow(t.date, reservation.dateDeparture)}
+                  ${renderDetailRow(t.date, formatDateForLanguage(reservation.dateDeparture, language))}
                   ${renderDetailRow(t.pickupHotel, reservation.departureTimeHotel, false, true)}
                   ${renderDetailRow(t.flightTime, reservation.departureTimeFlight)}
                   ${renderDetailRow(t.pax, reservation.peopleCountDeparture || reservation.peopleCount, false, true)}
@@ -837,7 +1054,7 @@ export const generateVoucherHTML = (
                   ${renderDetailRow(t.excursion, tour.name, false, true, 'normal', 2)}
                   ${renderDetailRow(t.meetingPoint, tour.origin, true)}
                   ${renderDetailRow(t.pickup, tour.time, false, true)}
-                  ${renderDetailRow(t.date, tour.date)}
+                  ${renderDetailRow(t.date, formatDateForLanguage(tour.date, language))}
                   ${renderDetailRow(t.type, tr(tour.type))}
                   ${renderDetailRow(t.pax, tour.pax || reservation.peopleCount, false, true)}
                 </div>
@@ -862,7 +1079,7 @@ export const generateVoucherHTML = (
                   ${renderDetailRow(t.name, reservation.departureName || reservation.name, false, true, 'normal', 2)}
                   ${renderDetailRow(t.from, reservation.originDeparture, true)}
                   ${renderDetailRow(t.until, reservation.departureDestination)}
-                  ${renderDetailRow(t.date, reservation.dateDeparture)}
+                  ${renderDetailRow(t.date, formatDateForLanguage(reservation.dateDeparture, language))}
                   ${renderDetailRow(t.startTime, reservation.departureTimeHotel, false, true)}
                   ${renderDetailRow(t.returnTime, reservation.departureTimeFlight)}
                   ${renderDetailRow(t.pax, reservation.peopleCountDeparture || reservation.peopleCount, false, true)}
@@ -895,7 +1112,7 @@ export const generateVoucherHTML = (
                   ${renderDetailRow(t.name, reservation.departureName || reservation.name, false, true, 'normal', 2)}
                   ${renderDetailRow(t.unitType, reservation.unitType)}
                   ${renderDetailRow(t.pax, reservation.peopleCountDeparture || reservation.peopleCount, false, true)}
-                  ${renderDetailRow(t.date, reservation.dateDeparture)}
+                  ${renderDetailRow(t.date, formatDateForLanguage(reservation.dateDeparture, language))}
                 </div>
                 
                 ${(reservation.includedThings || reservation.notIncludedThings) ? `
@@ -920,7 +1137,7 @@ export const generateVoucherHTML = (
                     ${reservation.circuitoLegs.map((leg, i) => `
                       <div class="grid grid-cols-2 gap-x-2 gap-y-1 text-[9px] bg-slate-50/50 p-2 rounded-lg">
                         <span class="font-bold uppercase text-green-600 col-span-2 text-[7px]">${t.day} #${i+1}</span>
-                        ${renderDetailRow(t.date, leg.date)}
+                        ${renderDetailRow(t.date, formatDateForLanguage(leg.date, language))}
                         ${renderDetailRow(t.schedule, leg.schedule)}
                         ${leg.pricePerDay ? renderDetailRow(t.pricePerDay, leg.pricePerDay, false, true, 'normal', 2) : ''}
                         ${renderDetailRow(t.placesToVisit, leg.placesToVisit, false, false, 'normal', 2)}

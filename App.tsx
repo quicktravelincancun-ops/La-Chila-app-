@@ -9,7 +9,10 @@ import {
   encodeVoucherToUrl, 
   decodeVoucherFromUrl, 
   openInSystemBrowser, 
-  shareOrPrintVoucher 
+  shareOrPrintVoucher,
+  toMexicanDateFormat,
+  toISOFormat,
+  sendReservationToGoogleSheets
 } from './utils';
 import { parseReservationText } from './geminiService';
 import VoucherPreview from './components/VoucherPreview';
@@ -69,8 +72,8 @@ const App: React.FC = () => {
     departureName: '',
     departureDestination: '',
     peopleCountDeparture: 1,
-    dateArrival: new Date().toISOString().split('T')[0],
-    dateDeparture: new Date().toISOString().split('T')[0],
+    dateArrival: toMexicanDateFormat(new Date().toISOString().split('T')[0]),
+    dateDeparture: toMexicanDateFormat(new Date().toISOString().split('T')[0]),
     arrivalTime: '',
     flightNoArrival: '',
     airlineArrival: '',
@@ -244,7 +247,7 @@ const App: React.FC = () => {
   const addCircuitoLeg = () => {
     const newLeg: CircuitoLeg = {
       id: Date.now().toString(),
-      date: formData.dateArrival || new Date().toISOString().split('T')[0],
+      date: toMexicanDateFormat(formData.dateArrival) || toMexicanDateFormat(new Date().toISOString().split('T')[0]),
       placesToVisit: '',
       schedule: '',
       entranceCosts: '',
@@ -281,7 +284,7 @@ const App: React.FC = () => {
       pax: formData.peopleCountDeparture,
       startTime: '',
       returnTime: '',
-      date: new Date().toISOString().split('T')[0]
+      date: toMexicanDateFormat(formData.dateDeparture) || toMexicanDateFormat(new Date().toISOString().split('T')[0])
     };
     setFormData(prev => ({
       ...prev,
@@ -349,7 +352,6 @@ const App: React.FC = () => {
         }
         return res;
       });
-      showUIMessage(`✅ Reserva ${formData.reservationNo} actualizada con éxito.`);
     } else {
       const newRes: Reservation = {
         ...finalData,
@@ -358,8 +360,11 @@ const App: React.FC = () => {
       } as Reservation;
       savedRes = newRes;
       updated = [newRes, ...reservations];
-      showUIMessage(`✅ Reserva ${newRes.reservationNo} guardada.`);
     }
+
+    // Automatically trigger Google Sheets webhook logging
+    sendReservationToGoogleSheets(savedRes);
+    showUIMessage("Reserva guardada y enviada a Google Sheets");
 
     setReservations(updated);
     localStorage.setItem('qt_reservations', JSON.stringify(updated));
@@ -476,8 +481,7 @@ const App: React.FC = () => {
     
     const formatDate = (dateStr: string) => {
         if (!dateStr) return '-';
-        const [y, m, d] = dateStr.split('-');
-        return `${d}/${m}/${y}`;
+        return toMexicanDateFormat(dateStr) || '-';
     };
 
     const rows: string[] = [];
@@ -1148,9 +1152,20 @@ const App: React.FC = () => {
                       </button>
                     </>
                   ) : (
-                    <button onClick={() => handleSave(false)} className="flex-1 py-5 bg-[#0a305e] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all">
-                      Guardar y Generar
-                    </button>
+                    <>
+                      <button 
+                        onClick={() => handleSave(true)} 
+                        className="flex-1 py-5 bg-emerald-600 text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:bg-emerald-700 hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[180px]"
+                      >
+                        <i className="fas fa-file-invoice"></i> Generar Voucher
+                      </button>
+                      <button 
+                        onClick={() => handleSave(false)} 
+                        className="flex-1 py-5 bg-[#0a305e] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[140px]"
+                      >
+                        <i className="fas fa-save"></i> Guardar
+                      </button>
+                    </>
                   )}
                   <button onClick={handleSyncToSheets} className="px-8 py-5 bg-[#34a853] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl flex items-center gap-2">
                     <i className="fas fa-table"></i> {syncing ? 'Sincronizando...' : 'Sheets'}
@@ -1259,12 +1274,106 @@ const SectionTitle: React.FC<{ label: string; icon: string; color: string }> = (
   </div>
 );
 
-const InputGroup: React.FC<{ label: string; name: string; type?: string; value: string; onChange?: any; placeholder?: string; highlight?: boolean }> = ({ label, name, type = 'text', value, onChange, placeholder, highlight = false }) => (
-  <div className="flex flex-col group">
-    <label className="text-[10px] uppercase font-black text-gray-400 mb-2 tracking-widest pl-1">{label}</label>
-    <input type={type} name={name} value={value} onChange={onChange} placeholder={placeholder} className={`border-2 border-gray-100 rounded-2xl px-5 py-4 text-sm font-bold text-slate-800 bg-white focus:border-blue-500 outline-none transition-all shadow-sm ${highlight ? 'text-orange-600 border-orange-50' : ''}`} />
-  </div>
-);
+const InputGroup: React.FC<{ 
+  label: string; 
+  name: string; 
+  type?: string; 
+  value: string; 
+  onChange?: any; 
+  placeholder?: string; 
+  highlight?: boolean 
+}> = ({ label, name, type = 'text', value, onChange, placeholder, highlight = false }) => {
+  const hiddenDateRef = React.useRef<HTMLInputElement | null>(null);
+
+  if (type === 'date') {
+    const displayVal = toMexicanDateFormat(value);
+    const isoVal = toISOFormat(value);
+
+    const handleNativeDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const rawIso = e.target.value;
+      if (rawIso) {
+        const mex = toMexicanDateFormat(rawIso);
+        onChange?.({ target: { name, value: mex } });
+      }
+    };
+
+    const handleManualChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      onChange?.({ target: { name, value: e.target.value } });
+    };
+
+    const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+      const formatted = toMexicanDateFormat(e.target.value);
+      if (formatted && formatted !== e.target.value) {
+        onChange?.({ target: { name, value: formatted } });
+      }
+    };
+
+    const openDatePicker = () => {
+      if (hiddenDateRef.current) {
+        try {
+          if (typeof (hiddenDateRef.current as any).showPicker === 'function') {
+            (hiddenDateRef.current as any).showPicker();
+          } else {
+            hiddenDateRef.current.focus();
+          }
+        } catch {
+          hiddenDateRef.current.focus();
+        }
+      }
+    };
+
+    return (
+      <div className="flex flex-col group relative">
+        <div className="flex justify-between items-center mb-2 pl-1">
+          <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest">{label}</label>
+          <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">DD/MM/AAAA</span>
+        </div>
+        <div className="relative flex items-center">
+          <input
+            type="text"
+            name={name}
+            value={displayVal}
+            onChange={handleManualChange}
+            onBlur={handleBlur}
+            placeholder={placeholder || "DD/MM/AAAA"}
+            maxLength={10}
+            className={`w-full border-2 border-gray-100 rounded-2xl px-5 py-4 text-sm font-bold text-slate-800 bg-white focus:border-blue-500 outline-none transition-all shadow-sm pr-12 ${highlight ? 'text-orange-600 border-orange-50' : ''}`}
+          />
+          <button
+            type="button"
+            onClick={openDatePicker}
+            title="Abrir selector de fecha"
+            className="absolute right-3.5 w-8 h-8 rounded-xl bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 flex items-center justify-center transition-all cursor-pointer"
+          >
+            <i className="far fa-calendar-alt text-sm"></i>
+          </button>
+          <input
+            ref={hiddenDateRef}
+            type="date"
+            tabIndex={-1}
+            value={isoVal}
+            onChange={handleNativeDateChange}
+            className="sr-only pointer-events-none absolute w-0 h-0 opacity-0"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col group">
+      <label className="text-[10px] uppercase font-black text-gray-400 mb-2 tracking-widest pl-1">{label}</label>
+      <input 
+        type={type} 
+        name={name} 
+        value={value} 
+        onChange={onChange} 
+        placeholder={placeholder} 
+        className={`border-2 border-gray-100 rounded-2xl px-5 py-4 text-sm font-bold text-slate-800 bg-white focus:border-blue-500 outline-none transition-all shadow-sm ${highlight ? 'text-orange-600 border-orange-50' : ''}`} 
+      />
+    </div>
+  );
+};
 
 const SelectGroup: React.FC<{ label: string; name: string; value: string; onChange: any; options: string[] }> = ({ label, name, value, onChange, options }) => (
   <div className="flex flex-col group">

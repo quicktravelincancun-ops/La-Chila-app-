@@ -3,6 +3,7 @@
 // without throwing unhandled JSON parsing errors.
 import { GoogleGenAI } from '@google/genai';
 import { Reservation } from './types';
+import { toMexicanDateFormat } from './utils';
 
 const MONTHS_ES: Record<string, string> = {
   enero: '01', ene: '01',
@@ -110,7 +111,7 @@ function parseSpanishDates(text: string): Array<{ date: string; index: number; r
     const year = match[3] || currentYear;
     if (month) {
       results.push({
-        date: `${year}-${month}-${day}`,
+        date: `${day}/${month}/${year}`,
         index: match.index,
         raw: match[0]
       });
@@ -124,7 +125,7 @@ function parseSpanishDates(text: string): Array<{ date: string; index: number; r
     const month = match[2].padStart(2, '0');
     const year = match[3];
     results.push({
-      date: `${year}-${month}-${day}`,
+      date: `${day}/${month}/${year}`,
       index: match.index,
       raw: match[0]
     });
@@ -137,7 +138,7 @@ function parseSpanishDates(text: string): Array<{ date: string; index: number; r
     const month = match[2].padStart(2, '0');
     const day = match[3].padStart(2, '0');
     results.push({
-      date: `${year}-${month}-${day}`,
+      date: `${day}/${month}/${year}`,
       index: match.index,
       raw: match[0]
     });
@@ -410,6 +411,32 @@ function normalizeReservationData(parsedData: any): Partial<Reservation> {
   if (normalized.depositUsd !== undefined) normalized.depositUsd = Number(normalized.depositUsd) || 0;
   if (normalized.toPayUsd !== undefined) normalized.toPayUsd = Number(normalized.toPayUsd) || 0;
 
+  // Enforce Mexican date conventions (DD/MM/YYYY) for all dates
+  if (normalized.dateArrival) {
+    normalized.dateArrival = toMexicanDateFormat(normalized.dateArrival);
+  }
+  if (normalized.dateDeparture) {
+    normalized.dateDeparture = toMexicanDateFormat(normalized.dateDeparture);
+  }
+  if (Array.isArray(normalized.extraLegs)) {
+    normalized.extraLegs = normalized.extraLegs.map((leg: any) => ({
+      ...leg,
+      date: toMexicanDateFormat(leg.date)
+    }));
+  }
+  if (Array.isArray(normalized.extraTours)) {
+    normalized.extraTours = normalized.extraTours.map((tour: any) => ({
+      ...tour,
+      dateDeparture: toMexicanDateFormat(tour.dateDeparture)
+    }));
+  }
+  if (Array.isArray(normalized.circuitoLegs)) {
+    normalized.circuitoLegs = normalized.circuitoLegs.map((leg: any) => ({
+      ...leg,
+      date: toMexicanDateFormat(leg.date)
+    }));
+  }
+
   return normalized;
 }
 
@@ -444,6 +471,7 @@ export async function parseReservationText(text: string): Promise<Partial<Reserv
       const systemPrompt = `Eres un asistente experto en logística y reservas para Quick Travel Cancún.
 Analiza el texto suministrado y extrae todos los datos relevantes para rellenar un voucher de reservación.
 Fecha de referencia actual del sistema: ${currentDate}.
+REGLA CRÍTICA DE FECHAS: Todas las fechas deben extraerse y formatearse estrictamente en formato mexicano DD/MM/YYYY (ejemplo: 27/09/2026 en lugar de 2026-09-27 o 09/27/2026).
 
 Reglas de servicio:
 - serviceType debe ser: "Llegada y Salida", "Solo Llegada", "Solo Salida", "Solo Traslado", "Tour o Excursión" o "Circuito"
@@ -452,11 +480,11 @@ Reglas de servicio:
 
 Campos esperados en formato JSON:
 name, serviceType, transferSubtype, tourName, tourType, observations, origin, arrivalDestination,
-peopleCountArrival, dateArrival (YYYY-MM-DD), arrivalTime (HH:MM), flightNoArrival, airlineArrival,
-originDeparture, departureDestination, peopleCountDeparture, dateDeparture (YYYY-MM-DD),
+peopleCountArrival, dateArrival (DD/MM/YYYY), arrivalTime (HH:MM), flightNoArrival, airlineArrival,
+originDeparture, departureDestination, peopleCountDeparture, dateDeparture (DD/MM/YYYY),
 departureTimeHotel (HH:MM), departureTimeFlight (HH:MM), peopleCount (número), depositMxn (número),
 toPayMxn (número), depositUsd (número), toPayUsd (número), roomNumber, unitType, includedThings,
-notIncludedThings, circuitoLegs: [{ date, placesToVisit, schedule, entranceCosts, pricePerDay, observations }]
+notIncludedThings, circuitoLegs: [{ date (DD/MM/YYYY), placesToVisit, schedule, entranceCosts, pricePerDay, observations }]
 
 Devuelve ÚNICAMENTE un objeto JSON válido con los campos extraídos.`;
 
