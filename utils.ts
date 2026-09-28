@@ -179,7 +179,7 @@ export async function sendReservationToGoogleSheets(res: Reservation): Promise<b
       amountStr = `Pagado ($${res.depositMxn} MXN)`;
     }
 
-    const payload = {
+    const reservationPayload = {
       code: res.reservationNo,
       passenger: res.name || res.arrivalName || res.departureName || '-',
       serviceType: res.serviceType + (res.transferSubtype ? ` (${res.transferSubtype})` : ''),
@@ -207,10 +207,8 @@ export async function sendReservationToGoogleSheets(res: Reservation): Promise<b
     await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
       method: 'POST',
       mode: 'no-cors',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8'
-      },
-      body: JSON.stringify(payload)
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(reservationPayload)
     });
 
     return true;

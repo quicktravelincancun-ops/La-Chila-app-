@@ -446,11 +446,11 @@ const App: React.FC = () => {
         showUIMessage("✅ Datos extraídos y autocompletados con éxito.");
         setAiInputText('');
       } else {
-        showUIMessage("No se pudo procesar el texto. Verifica los datos.");
+        showUIMessage("No se encontraron datos de reserva en el texto.");
       }
     } catch (error: any) {
       console.warn("Error parsing reservation text:", error);
-      showUIMessage("No se pudo procesar el texto. Verifica los datos.");
+      showUIMessage("No se encontraron datos de reserva en el texto.");
     } finally {
       setIsParsingAI(false);
     }
