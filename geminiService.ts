@@ -1,7 +1,3 @@
-// Client-side reservation parsing and autocomplete service for Quick Travel Cancún.
-// Operates 100% on the client side using Google Gemini Client SDK (if key is available)
-// combined with a deterministic client-side Regex parser fallback.
-// Never calls relative backend endpoints and never throws raw JSON "Unexpected token" errors.
 import { GoogleGenAI } from '@google/genai';
 import { Reservation } from './types';
 import { toMexicanDateFormat } from './utils';
@@ -84,11 +80,7 @@ const IATA_AIRLINE_MAP: Record<string, string> = {
   'LH': 'Lufthansa'
 };
 
-/**
- * Retrieves the client-side Gemini API key if available via process.env.NEXT_PUBLIC_GEMINI_API_KEY
- * or other standard client environment variables.
- */
-function getClientApiKey(): string {
+export function getClientGeminiApiKey(): string {
   try {
     if (typeof process !== 'undefined' && process.env) {
       if (process.env.NEXT_PUBLIC_GEMINI_API_KEY) return process.env.NEXT_PUBLIC_GEMINI_API_KEY;
@@ -96,7 +88,7 @@ function getClientApiKey(): string {
       if (process.env.API_KEY) return process.env.API_KEY;
     }
   } catch {
-    // Ignore process access errors in strict browser environments
+    // Ignore process access errors
   }
   try {
     if (typeof import.meta !== 'undefined' && (import.meta as any)?.env) {
@@ -112,10 +104,6 @@ function getClientApiKey(): string {
   return '';
 }
 
-/**
- * Normalizes time strings into standard 24h format (HH:MM).
- * Examples: "2:30 pm" -> "14:30", "11:20 am" -> "11:20", "14:30 hrs" -> "14:30"
- */
 function normalizeTime(raw: string): string {
   if (!raw) return '';
   const clean = raw.trim().toLowerCase().replace(/hrs\.?|hr\.?|horas?/g, '').trim();
@@ -135,14 +123,10 @@ function normalizeTime(raw: string): string {
   return clean;
 }
 
-/**
- * Extracts and normalizes dates from text into Mexican DD/MM/YYYY format.
- */
 function parseDatesToMexicanFormat(text: string): Array<{ date: string; index: number; raw: string }> {
   const results: Array<{ date: string; index: number; raw: string }> = [];
   const currentYear = new Date().getFullYear().toString();
 
-  // Pattern 1: DD de [Mes] (de YYYY) -> e.g. "15 de Octubre", "27 de Septiembre de 2026", "15 Oct 2026"
   const monthNamesPattern = Object.keys(MONTHS_MAP).join('|');
   const regexNamedDMY = new RegExp(`\\b(\\d{1,2})\\s*(?:de\\s+|of\\s+|[-/\\s]\\s*)(${monthNamesPattern})(?:\\s*(?:de\\s+|del?\\s+|,\\s*|[-/\\s]\\s*)(202\\d|\\d{2}))?\\b`, 'gi');
   let match;
@@ -160,7 +144,6 @@ function parseDatesToMexicanFormat(text: string): Array<{ date: string; index: n
     }
   }
 
-  // Pattern 2: [Month] DD, YYYY -> e.g. "October 15, 2026" or "Septiembre 27 2026"
   const regexNamedMDY = new RegExp(`\\b(${monthNamesPattern})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*,?\\s*(?:de\\s+|del?\\s+)?(202\\d|\\d{2}))?\\b`, 'gi');
   while ((match = regexNamedMDY.exec(text)) !== null) {
     const month = MONTHS_MAP[match[1].toLowerCase()];
@@ -168,7 +151,6 @@ function parseDatesToMexicanFormat(text: string): Array<{ date: string; index: n
     let year = match[3] || currentYear;
     if (year.length === 2) year = `20${year}`;
     if (month && parseInt(day, 10) >= 1 && parseInt(day, 10) <= 31) {
-      // Avoid duplicates overlapping with Pattern 1
       const mIndex = match.index;
       if (!results.some(r => Math.abs(r.index - mIndex) < 5)) {
         results.push({
@@ -180,15 +162,13 @@ function parseDatesToMexicanFormat(text: string): Array<{ date: string; index: n
     }
   }
 
-  // Pattern 3: Numeric DD/MM/YYYY or DD-MM-YYYY (with smart check if first part > 12 vs second part > 12)
   const regexNumeric = /\b(\d{1,2})[-/](\d{1,2})[-/](202\d|\d{2})\b/g;
   while ((match = regexNumeric.exec(text)) !== null) {
-    let p1 = parseInt(match[1], 10);
-    let p2 = parseInt(match[2], 10);
+    const p1 = parseInt(match[1], 10);
+    const p2 = parseInt(match[2], 10);
     let year = match[3];
     if (year.length === 2) year = `20${year}`;
 
-    // In Mexico DD/MM/YYYY is standard, but if p2 > 12 and p1 <= 12 (e.g., 09/27/2026), swap to DD/MM/YYYY
     let day = p1;
     let month = p2;
     if (p2 > 12 && p1 <= 12) {
@@ -205,7 +185,6 @@ function parseDatesToMexicanFormat(text: string): Array<{ date: string; index: n
     }
   }
 
-  // Pattern 4: ISO YYYY-MM-DD or YYYY/MM/DD
   const regexIso = /\b(202\d)[-/](\d{1,2})[-/](\d{1,2})\b/g;
   while ((match = regexIso.exec(text)) !== null) {
     const year = match[1];
@@ -224,15 +203,12 @@ function parseDatesToMexicanFormat(text: string): Array<{ date: string; index: n
 }
 
 /**
- * Pure client-side regular expression parser for reservation texts.
- * Extracts: Lead Passenger Name, Service Type, Flight Number, Airline,
- * Dates (DD/MM/YYYY), Origin/Destination Hotel, Passenger Count (PAX), and Price.
+ * Local client-side regular expression parser for reservation texts.
  */
 export function extractReservationFieldsWithRegex(text: string): Partial<Reservation> {
   const result: Partial<Reservation> = {};
   if (!text || !text.trim()) return result;
 
-  const lower = text.toLowerCase();
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
 
   // 1. Service Type & Subtype
@@ -330,7 +306,6 @@ export function extractReservationFieldsWithRegex(text: string): Partial<Reserva
     }
   }
 
-  // Origin / Terminal extraction
   const terminalMatch = text.match(/\b(terminal\s*[1234]|t[1234]|aeropuerto\s*(?:de\s*)?canc[uú]n)\b/i);
   if (terminalMatch && terminalMatch[1]) {
     result.origin = terminalMatch[1].toUpperCase().startsWith('T') && terminalMatch[1].length === 2
@@ -358,7 +333,6 @@ export function extractReservationFieldsWithRegex(text: string): Partial<Reserva
     }
   }
 
-  // Fallback: IATA flight number format (e.g. AA123, AA 1234, Y4 721, VB205, AM 540)
   if (allFlightMatches.length === 0) {
     const codeRegex = /\b([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?(\d{2,4})\b/g;
     let cMatch;
@@ -366,7 +340,6 @@ export function extractReservationFieldsWithRegex(text: string): Partial<Reserva
       const prefix = cMatch[1].toUpperCase();
       const num = cMatch[2];
       if (!STOP_WORDS_SPANISH.has(prefix) && !/^(NO|SI|OK|DE|EL|LA|AL|EN|UN|AM|PM|HR)$/.test(prefix) || IATA_AIRLINE_MAP[prefix]) {
-        // Note: Only allow 'AM' if followed by 3-4 digits and not preceded by a time
         if (prefix === 'AM' && num.length < 3) continue;
         allFlightMatches.push(`${prefix}${num}`);
       }
@@ -375,7 +348,6 @@ export function extractReservationFieldsWithRegex(text: string): Partial<Reserva
 
   if (allFlightMatches.length > 0) {
     result.flightNoArrival = allFlightMatches[0];
-    // Infer airline from IATA prefix if not already set
     if (!result.airlineArrival) {
       const prefixMatch = allFlightMatches[0].match(/^([A-Z0-9]{2})/);
       if (prefixMatch && IATA_AIRLINE_MAP[prefixMatch[1]]) {
@@ -389,7 +361,6 @@ export function extractReservationFieldsWithRegex(text: string): Partial<Reserva
     }
   }
 
-  // Default airport origin/destination for arrival/departure services if not explicitly provided
   if ((result.serviceType === 'Solo Llegada' || result.serviceType === 'Llegada y Salida') && !result.origin) {
     result.origin = 'Aeropuerto Cancún';
   }
@@ -446,7 +417,7 @@ export function extractReservationFieldsWithRegex(text: string): Partial<Reserva
     result.roomNumber = roomMatch[1].trim();
   }
 
-  // 9. Price / Financials (Deposit & Balance in USD or MXN)
+  // 9. Price / Financials
   const depositUsdMatch = text.match(/(?:dep[oó]sito|anticipo|deposit)[:\s*]*\$?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:usd|d[oó]lares|dlls)/i);
   if (depositUsdMatch && depositUsdMatch[1]) {
     const val = parseFloat(depositUsdMatch[1].replace(/,/g, ''));
@@ -481,21 +452,74 @@ export function extractReservationFieldsWithRegex(text: string): Partial<Reserva
 }
 
 /**
- * Normalizes extracted reservation fields into a consistent structure with Mexican dates (DD/MM/YYYY).
+ * Normalizes both simplified keys (passenger, serviceType, date, flight, destination, pax, amount)
+ * and full Reservation keys into a consistent Reservation structure with DD/MM/YYYY dates.
  */
-function normalizeReservationData(parsedData: any): Partial<Reservation> {
+export function normalizeReservationData(parsedData: any): Partial<Reservation> {
   const normalized: any = { ...parsedData };
 
-  // Clean empty or null properties so we know if meaningful fields were found
+  // Map simplified keys if present
+  if (normalized.passenger && !normalized.name) {
+    normalized.name = String(normalized.passenger).trim();
+  }
+  if (normalized.date && !normalized.dateArrival) {
+    normalized.dateArrival = toMexicanDateFormat(String(normalized.date));
+  }
+  if (normalized.flight && !normalized.flightNoArrival) {
+    normalized.flightNoArrival = String(normalized.flight).trim();
+  }
+  if (normalized.destination && !normalized.arrivalDestination) {
+    normalized.arrivalDestination = String(normalized.destination).trim();
+  }
+  if (normalized.pax !== undefined && normalized.pax !== null && normalized.peopleCount === undefined) {
+    const parsedPax = parseInt(String(normalized.pax), 10);
+    if (!isNaN(parsedPax) && parsedPax > 0) {
+      normalized.peopleCount = parsedPax;
+    }
+  }
+  if (normalized.amount !== undefined && normalized.amount !== null) {
+    const amountRaw = String(normalized.amount);
+    const numericVal = parseFloat(amountRaw.replace(/[^0-9.]/g, ''));
+    if (!isNaN(numericVal) && numericVal > 0) {
+      if (/usd|d[oó]lar/i.test(amountRaw)) {
+        if (!normalized.toPayUsd) normalized.toPayUsd = numericVal;
+      } else {
+        if (!normalized.toPayMxn) normalized.toPayMxn = numericVal;
+      }
+    }
+  }
+
+  // Clean empty or null properties
   Object.keys(normalized).forEach(k => {
     if (normalized[k] === null || normalized[k] === undefined || normalized[k] === '') {
       delete normalized[k];
     }
   });
 
+  // Normalize serviceType to valid dropdown options
+  if (normalized.serviceType) {
+    const st = String(normalized.serviceType).toLowerCase();
+    if (st.includes('llegada') && st.includes('salida') || st.includes('redondo') || st.includes('round')) {
+      normalized.serviceType = 'Llegada y Salida';
+    } else if (st.includes('llegada') || st.includes('arrival')) {
+      normalized.serviceType = 'Solo Llegada';
+    } else if (st.includes('salida') || st.includes('departure')) {
+      normalized.serviceType = 'Solo Salida';
+    } else if (st.includes('tour') || st.includes('excursi')) {
+      normalized.serviceType = 'Tour o Excursión';
+    } else if (st.includes('circuito')) {
+      normalized.serviceType = 'Circuito';
+    } else if (st.includes('traslado') || st.includes('transfer')) {
+      normalized.serviceType = 'Solo Traslado';
+    }
+  }
+
   if (normalized.serviceType === "Tour o Excursión" || normalized.serviceType === "Solo Salida") {
     if (normalized.origin && !normalized.originDeparture) {
       normalized.originDeparture = normalized.origin;
+    }
+    if (normalized.arrivalDestination && !normalized.originDeparture) {
+      normalized.originDeparture = normalized.arrivalDestination;
     }
     if (normalized.dateArrival && !normalized.dateDeparture) {
       normalized.dateDeparture = normalized.dateArrival;
@@ -528,7 +552,6 @@ function normalizeReservationData(parsedData: any): Partial<Reservation> {
   if (normalized.depositUsd !== undefined) normalized.depositUsd = Number(normalized.depositUsd) || 0;
   if (normalized.toPayUsd !== undefined) normalized.toPayUsd = Number(normalized.toPayUsd) || 0;
 
-  // Enforce Mexican date conventions (DD/MM/YYYY) for all dates
   if (normalized.dateArrival) {
     normalized.dateArrival = toMexicanDateFormat(normalized.dateArrival);
   }
@@ -558,18 +581,14 @@ function normalizeReservationData(parsedData: any): Partial<Reservation> {
 }
 
 /**
- * Parses reservation text 100% on the client side:
- * - Never calls relative backend routes like /api/autocomplete or /api/parse-reservation.
- * - Uses client-side regex extraction + optional client-side Gemini SDK (if NEXT_PUBLIC_GEMINI_API_KEY is defined).
- * - Wraps all JSON extraction in try/catch blocks so raw "UNEXPECTED TOKEN" errors can never occur.
- * - Throws "No se encontraron datos de reserva en el texto." if no reservation fields could be extracted.
+ * Parses reservation text directly in the browser using GoogleGenAI SDK (if API key is configured)
+ * with automatic fallback to local regex pattern parsing.
  */
 export async function parseReservationText(text: string): Promise<Partial<Reservation>> {
   if (!text || !text.trim()) {
     throw new Error("No se encontraron datos de reserva en el texto.");
   }
 
-  // Always compute deterministic regex extraction first as a baseline
   let regexExtracted: Partial<Reservation> = {};
   try {
     regexExtracted = extractReservationFieldsWithRegex(text);
@@ -577,40 +596,57 @@ export async function parseReservationText(text: string): Promise<Partial<Reserv
     console.warn("Regex extraction warning:", regexErr);
   }
 
-  const apiKey = getClientApiKey();
+  const apiKey = getClientGeminiApiKey();
   const currentDate = new Date().toISOString().split("T")[0];
 
-  // If client-side Gemini API key is configured, enhance extraction via Google GenAI SDK
   if (apiKey) {
     try {
-      const ai = new GoogleGenAI({
-        apiKey,
-      });
+      const ai = new GoogleGenAI({ apiKey });
 
-      const systemPrompt = `Eres un asistente experto en logística y reservas para Quick Travel Cancún.
-Analiza el texto suministrado y extrae todos los datos relevantes para rellenar un voucher de reservación.
-Fecha de referencia actual del sistema: ${currentDate}.
-REGLA CRÍTICA DE FECHAS: Todas las fechas deben extraerse y formatearse estrictamente en formato mexicano DD/MM/YYYY (ejemplo: 27/09/2026 en lugar de 2026-09-27 o 09/27/2026).
+      const prompt = `Eres un asistente experto en logística y reservas para Quick Travel Cancún.
+Analiza el siguiente texto de reserva y extrae los campos en formato JSON válido.
+Fecha de referencia actual: ${currentDate}.
+Todas las fechas deben estar en formato mexicano DD/MM/YYYY (ejemplo: 27/09/2026).
 
-Reglas de servicio:
-- serviceType debe ser: "Llegada y Salida", "Solo Llegada", "Solo Salida", "Solo Traslado", "Tour o Excursión" o "Circuito"
-- transferSubtype: "Traslado Redondo", "Traslado Sencillo", o "Traslado Múltiple"
-- tourType: "Tour Compartido" o "Tour Privado"
+Devuelve un objeto JSON con estos campos (incluye tanto las llaves principales como las detalladas cuando apliquen):
+- passenger (string: nombre del pasajero titular)
+- name (string: nombre del pasajero titular)
+- serviceType ("Llegada y Salida" | "Solo Llegada" | "Solo Salida" | "Solo Traslado" | "Tour o Excursión" | "Circuito")
+- transferSubtype ("Traslado Redondo" | "Traslado Sencillo" | "Traslado Múltiple")
+- tourName (string)
+- tourType ("Tour Compartido" | "Tour Privado")
+- date (string: fecha en formato DD/MM/YYYY)
+- dateArrival (string: fecha de llegada en formato DD/MM/YYYY)
+- dateDeparture (string: fecha de salida en formato DD/MM/YYYY)
+- arrivalTime (string: HH:MM)
+- departureTimeHotel (string: HH:MM)
+- departureTimeFlight (string: HH:MM)
+- flight (string: número de vuelo)
+- flightNoArrival (string: número de vuelo)
+- airlineArrival (string: aerolínea)
+- origin (string: origen o terminal)
+- destination (string: hotel o destino)
+- arrivalDestination (string: hotel o destino de llegada)
+- originDeparture (string: hotel o punto de pick-up)
+- departureDestination (string: destino de salida)
+- pax (number: cantidad de pasajeros)
+- peopleCount (number: cantidad de pasajeros)
+- amount (string o number: monto a pagar)
+- depositMxn (number)
+- toPayMxn (number)
+- depositUsd (number)
+- toPayUsd (number)
+- roomNumber (string)
+- observations (string)
 
-Campos esperados en formato JSON:
-name, serviceType, transferSubtype, tourName, tourType, observations, origin, arrivalDestination,
-peopleCountArrival, dateArrival (DD/MM/YYYY), arrivalTime (HH:MM), flightNoArrival, airlineArrival,
-originDeparture, departureDestination, peopleCountDeparture, dateDeparture (DD/MM/YYYY),
-departureTimeHotel (HH:MM), departureTimeFlight (HH:MM), peopleCount (número), depositMxn (número),
-toPayMxn (número), depositUsd (número), toPayUsd (número), roomNumber, unitType, includedThings,
-notIncludedThings, circuitoLegs: [{ date (DD/MM/YYYY), placesToVisit, schedule, entranceCosts, pricePerDay, observations }]
-
-Si el texto no contiene ningún dato de reserva, devuelve un objeto JSON vacío {}.
-Devuelve ÚNICAMENTE un objeto JSON válido.`;
+Texto a analizar:
+"""
+${text.trim()}
+"""`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3.8-flash",
-        contents: `${systemPrompt}\n\nTexto a analizar:\n"""\n${text.trim()}\n"""`,
+        contents: prompt,
         config: {
           responseMimeType: "application/json",
         },
@@ -624,7 +660,7 @@ Devuelve ÚNICAMENTE un objeto JSON válido.`;
         cleaned = cleaned.substring(firstBrace, lastBrace + 1);
       }
 
-      if (cleaned) {
+      if (cleaned && !cleaned.startsWith('<')) {
         try {
           const parsed = JSON.parse(cleaned);
           if (parsed && typeof parsed === 'object') {
@@ -639,12 +675,12 @@ Devuelve ÚNICAMENTE un objeto JSON válido.`;
               return normalized;
             }
           }
-        } catch (jsonParseErr) {
-          console.warn("Gemini JSON parse warning, using client regex extraction:", jsonParseErr);
+        } catch (jsonErr) {
+          console.warn("Client JSON parse fallback to regex:", jsonErr);
         }
       }
-    } catch (geminiError) {
-      console.warn("Client Gemini SDK call failed, using client regex extraction:", geminiError);
+    } catch (geminiErr) {
+      console.warn("Client Gemini SDK fallback to regex:", geminiErr);
     }
   }
 

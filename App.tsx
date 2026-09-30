@@ -14,7 +14,8 @@ import {
   toISOFormat,
   sendReservationToGoogleSheets
 } from './utils';
-import { parseReservationText } from './geminiService';
+import { GoogleGenAI } from '@google/genai';
+import { extractReservationFieldsWithRegex, normalizeReservationData, getClientGeminiApiKey } from './geminiService';
 import VoucherPreview from './components/VoucherPreview';
 
 const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit?gid=0#gid=0";
@@ -418,10 +419,67 @@ const App: React.FC = () => {
   };
 
   const handleAIParsing = async () => {
-    if (!aiInputText.trim()) return;
+    const rawText = aiInputText.trim();
+    if (!rawText) return;
     setIsParsingAI(true);
     try {
-      const parsedData = await parseReservationText(aiInputText.trim());
+      let regexData: Partial<Reservation> = {};
+      try {
+        regexData = extractReservationFieldsWithRegex(rawText);
+      } catch (regexErr) {
+        console.warn("Regex fallback warning:", regexErr);
+      }
+
+      let aiParsed: any = null;
+      const apiKey = (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_GEMINI_API_KEY)
+        ? process.env.NEXT_PUBLIC_GEMINI_API_KEY
+        : getClientGeminiApiKey();
+
+      if (apiKey) {
+        try {
+          const ai = new GoogleGenAI({ apiKey });
+          const currentDate = new Date().toISOString().split('T')[0];
+          const prompt = `Analiza el siguiente texto de reservación para Quick Travel Cancún y devuelve un objeto JSON válido con los campos encontrados:
+passenger, name, serviceType ("Llegada y Salida" | "Solo Llegada" | "Solo Salida" | "Solo Traslado" | "Tour o Excursión" | "Circuito"), transferSubtype, tourName, tourType, date (DD/MM/YYYY), dateArrival (DD/MM/YYYY), dateDeparture (DD/MM/YYYY), arrivalTime (HH:MM), departureTimeHotel (HH:MM), departureTimeFlight (HH:MM), flight, flightNoArrival, airlineArrival, origin, destination, arrivalDestination, originDeparture, departureDestination, pax (number), peopleCount (number), amount, depositMxn (number), toPayMxn (number), depositUsd (number), toPayUsd (number), roomNumber, observations.
+Fecha actual de referencia: ${currentDate}. Todas las fechas en formato DD/MM/YYYY.
+
+Texto:
+"""
+${rawText}
+"""`;
+
+          const response = await ai.models.generateContent({
+            model: 'gemini-3.8-flash',
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+            },
+          });
+
+          const rawResponse = (response.text || '').replace(/```json|```/g, '').trim();
+          const firstBrace = rawResponse.indexOf('{');
+          const lastBrace = rawResponse.lastIndexOf('}');
+          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
+            const jsonCandidate = rawResponse.substring(firstBrace, lastBrace + 1);
+            if (!jsonCandidate.startsWith('<')) {
+              aiParsed = JSON.parse(jsonCandidate);
+            }
+          }
+        } catch (sdkErr) {
+          console.warn("Direct Gemini client SDK call failed, falling back to local regex:", sdkErr);
+        }
+      }
+
+      const mergedRaw: any = { ...regexData };
+      if (aiParsed && typeof aiParsed === 'object') {
+        Object.keys(aiParsed).forEach(k => {
+          if (aiParsed[k] !== undefined && aiParsed[k] !== null && aiParsed[k] !== '') {
+            mergedRaw[k] = aiParsed[k];
+          }
+        });
+      }
+
+      const parsedData = normalizeReservationData(mergedRaw);
 
       if (parsedData && typeof parsedData === 'object' && Object.keys(parsedData).length > 0) {
         setFormData(prev => {
@@ -433,12 +491,12 @@ const App: React.FC = () => {
           });
           
           if (parsedData.name) {
-            if (!newData.arrivalName) newData.arrivalName = parsedData.name;
-            if (!newData.departureName) newData.departureName = parsedData.name;
+            newData.arrivalName = parsedData.name;
+            newData.departureName = parsedData.name;
           }
           if (parsedData.peopleCount) {
-            if (newData.peopleCountArrival === 1) newData.peopleCountArrival = parsedData.peopleCount;
-            if (newData.peopleCountDeparture === 1) newData.peopleCountDeparture = parsedData.peopleCount;
+            newData.peopleCountArrival = parsedData.peopleCount;
+            newData.peopleCountDeparture = parsedData.peopleCount;
           }
 
           return newData;
