@@ -5,6 +5,8 @@ import { CONTACTS, COMPANY_EMAIL, SHEET_NAME, Logo, TOUR_LIST } from './constant
 import { 
   getWhatsAppLink, 
   generateWhatsAppMessage, 
+  generateDriverArrivalWhatsAppMessage,
+  generateDriverDepartureWhatsAppMessage,
   generateDriverWhatsAppMessage,
   getDriverWhatsAppUrl,
   isAndroidWebView, 
@@ -700,7 +702,7 @@ ${rawText}
     }
   };
 
-  const handleSendToDriver = (targetRes?: Reservation | null) => {
+  const handleSendToDriver = (legType: 'arrival' | 'departure', targetRes?: Reservation | null) => {
     let resolvedName = formData.name;
     let resolvedPeopleCount = formData.peopleCount;
 
@@ -723,7 +725,10 @@ ${rawText}
       createdAt: new Date().toISOString()
     } as Reservation;
 
-    const message = generateDriverWhatsAppMessage(resToSend);
+    const message = legType === 'arrival'
+      ? generateDriverArrivalWhatsAppMessage(resToSend)
+      : generateDriverDepartureWhatsAppMessage(resToSend);
+
     const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
 
     if (isAndroidWebView()) {
@@ -731,7 +736,8 @@ ${rawText}
     } else {
       window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
     }
-    showUIMessage("📲 Abriendo WhatsApp para enviar al chofer...");
+    const legLabel = legType === 'arrival' ? 'Llegada' : 'Salida';
+    showUIMessage(`📲 Abriendo WhatsApp para enviar ${legLabel} al chofer...`);
   };
 
   const confirmAndSendWhatsApp = () => {
@@ -820,14 +826,29 @@ ${rawText}
                 <span>IMPRIMIR / PDF</span>
               </button>
 
-              <button 
-                onClick={() => handleSendToDriver(showVoucherModal.reservation)} 
-                className="py-3.5 sm:py-4 px-4 sm:px-5 bg-[#25D366] hover:bg-[#1ebd5a] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-                title="Enviar orden de servicio al chofer por WhatsApp"
-              >
-                <i className="fab fa-whatsapp text-sm"></i>
-                <span>ENVIAR A CHOFER</span>
-              </button>
+              {showVoucherModal.reservation && (showVoucherModal.reservation.serviceType === "Llegada y Salida" || showVoucherModal.reservation.serviceType === "Solo Llegada") && (
+                <button 
+                  onClick={() => handleSendToDriver('arrival', showVoucherModal.reservation)} 
+                  className="py-3.5 sm:py-4 px-4 sm:px-5 bg-[#25D366] hover:bg-[#1ebd5a] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                  title="Enviar orden de llegada al chofer por WhatsApp"
+                >
+                  <i className="fab fa-whatsapp text-sm"></i>
+                  <i className="fas fa-plane-arrival text-xs"></i>
+                  <span>ENVIAR LLEGADA A CHOFER</span>
+                </button>
+              )}
+
+              {showVoucherModal.reservation && (showVoucherModal.reservation.serviceType === "Llegada y Salida" || showVoucherModal.reservation.serviceType === "Solo Salida" || showVoucherModal.reservation.serviceType === "Solo Traslado" || showVoucherModal.reservation.serviceType === "Tour o Excursión" || showVoucherModal.reservation.serviceType === "Circuito") && (
+                <button 
+                  onClick={() => handleSendToDriver('departure', showVoucherModal.reservation)} 
+                  className="py-3.5 sm:py-4 px-4 sm:px-5 bg-[#128C7E] hover:bg-[#0e7064] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                  title="Enviar orden de salida al chofer por WhatsApp"
+                >
+                  <i className="fab fa-whatsapp text-sm"></i>
+                  <i className="fas fa-plane-departure text-xs"></i>
+                  <span>ENVIAR SALIDA A CHOFER</span>
+                </button>
+              )}
 
               <button 
                 onClick={() => handleShareOrDownload(showVoucherModal.reservation!, 'voucher-modal-print', previewLanguage)} 
@@ -1316,14 +1337,28 @@ ${rawText}
                     <i className={`fas ${syncing ? 'fa-spinner fa-spin' : 'fa-cloud-upload-alt'}`}></i>
                     <span>{syncing ? 'Guardando...' : 'Guardar en Sheets'}</span>
                   </button>
-                  <button 
-                    onClick={() => handleSendToDriver()} 
-                    className="px-6 py-5 bg-[#25D366] hover:bg-[#1ebd5a] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[160px]"
-                    title="Enviar orden de servicio al chofer por WhatsApp"
-                  >
-                    <i className="fab fa-whatsapp text-sm"></i>
-                    <span>Enviar a Chofer</span>
-                  </button>
+                  {(formData.serviceType === "Llegada y Salida" || formData.serviceType === "Solo Llegada") && (
+                    <button 
+                      onClick={() => handleSendToDriver('arrival')} 
+                      className="px-6 py-5 bg-[#25D366] hover:bg-[#1ebd5a] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[190px]"
+                      title="Enviar orden de llegada al chofer por WhatsApp con ruta a hotel"
+                    >
+                      <i className="fab fa-whatsapp text-sm"></i>
+                      <i className="fas fa-plane-arrival text-xs"></i>
+                      <span>Enviar Llegada a Chofer</span>
+                    </button>
+                  )}
+                  {(formData.serviceType === "Llegada y Salida" || formData.serviceType === "Solo Salida" || formData.serviceType === "Solo Traslado" || formData.serviceType === "Tour o Excursión" || formData.serviceType === "Circuito") && (
+                    <button 
+                      onClick={() => handleSendToDriver('departure')} 
+                      className="px-6 py-5 bg-[#128C7E] hover:bg-[#0e7064] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[190px]"
+                      title="Enviar orden de salida al chofer por WhatsApp con ruta a aeropuerto"
+                    >
+                      <i className="fab fa-whatsapp text-sm"></i>
+                      <i className="fas fa-plane-departure text-xs"></i>
+                      <span>Enviar Salida a Chofer</span>
+                    </button>
+                  )}
                   <button onClick={handleSyncToSheets} className="px-6 py-5 bg-[#34a853] hover:bg-[#2d9147] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl flex items-center gap-2" title="Abrir y copiar formato TSV para la hoja">
                     <i className="fas fa-table"></i> Sheets (TSV)
                   </button>
@@ -1352,14 +1387,28 @@ ${rawText}
                     >
                       <i className="fas fa-print text-emerald-400"></i> IMPRIMIR / PDF
                     </button>
-                    <button 
-                      onClick={() => handleSendToDriver(currentVoucher)} 
-                      className="bg-[#25D366] hover:bg-[#1ebd5a] text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[160px] flex items-center justify-center gap-2 active:scale-[0.98]"
-                      title="Enviar orden de servicio al chofer por WhatsApp"
-                    >
-                      <i className="fab fa-whatsapp text-sm"></i>
-                      <span>ENVIAR A CHOFER</span>
-                    </button>
+                    {(!currentVoucher.serviceType || currentVoucher.serviceType === "Llegada y Salida" || currentVoucher.serviceType === "Solo Llegada") && (
+                      <button 
+                        onClick={() => handleSendToDriver('arrival', currentVoucher)} 
+                        className="bg-[#25D366] hover:bg-[#1ebd5a] text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[180px] flex items-center justify-center gap-2 active:scale-[0.98]"
+                        title="Enviar orden de llegada al chofer por WhatsApp"
+                      >
+                        <i className="fab fa-whatsapp text-sm"></i>
+                        <i className="fas fa-plane-arrival text-xs"></i>
+                        <span>ENVIAR LLEGADA A CHOFER</span>
+                      </button>
+                    )}
+                    {(!currentVoucher.serviceType || currentVoucher.serviceType === "Llegada y Salida" || currentVoucher.serviceType === "Solo Salida" || currentVoucher.serviceType === "Solo Traslado" || currentVoucher.serviceType === "Tour o Excursión" || currentVoucher.serviceType === "Circuito") && (
+                      <button 
+                        onClick={() => handleSendToDriver('departure', currentVoucher)} 
+                        className="bg-[#128C7E] hover:bg-[#0e7064] text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[180px] flex items-center justify-center gap-2 active:scale-[0.98]"
+                        title="Enviar orden de salida al chofer por WhatsApp"
+                      >
+                        <i className="fab fa-whatsapp text-sm"></i>
+                        <i className="fas fa-plane-departure text-xs"></i>
+                        <span>ENVIAR SALIDA A CHOFER</span>
+                      </button>
+                    )}
                     <button 
                       onClick={handleSaveToSheets} 
                       disabled={syncing}
@@ -1410,13 +1459,24 @@ ${rawText}
                             >
                               <i className="fas fa-file-invoice"></i> Voucher
                             </button>
-                            <button 
-                              onClick={() => handleSendToDriver(res)} 
-                              className="px-3 py-2 bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366] hover:text-white rounded-xl text-[9px] font-black uppercase transition-all flex items-center gap-1.5"
-                              title="Enviar orden al chofer por WhatsApp"
-                            >
-                              <i className="fab fa-whatsapp text-xs"></i> Chofer
-                            </button>
+                            {(res.serviceType === "Llegada y Salida" || res.serviceType === "Solo Llegada") && (
+                              <button 
+                                onClick={() => handleSendToDriver('arrival', res)} 
+                                className="px-2.5 py-1.5 bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366] hover:text-white rounded-xl text-[9px] font-black uppercase transition-all flex items-center gap-1"
+                                title="Enviar orden de llegada al chofer"
+                              >
+                                <i className="fab fa-whatsapp text-xs"></i> Llegada
+                              </button>
+                            )}
+                            {(res.serviceType === "Llegada y Salida" || res.serviceType === "Solo Salida" || res.serviceType === "Solo Traslado" || res.serviceType === "Tour o Excursión" || res.serviceType === "Circuito") && (
+                              <button 
+                                onClick={() => handleSendToDriver('departure', res)} 
+                                className="px-2.5 py-1.5 bg-[#128C7E]/10 text-[#128C7E] hover:bg-[#128C7E] hover:text-white rounded-xl text-[9px] font-black uppercase transition-all flex items-center gap-1"
+                                title="Enviar orden de salida al chofer"
+                              >
+                                <i className="fab fa-whatsapp text-xs"></i> Salida
+                              </button>
+                            )}
                             <button 
                               onClick={() => handleEdit(res)} 
                               className="w-8 h-8 bg-orange-50 text-orange-500 rounded-xl hover:bg-orange-500 hover:text-white transition-all flex items-center justify-center"

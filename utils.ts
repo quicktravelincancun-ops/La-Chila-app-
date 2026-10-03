@@ -262,37 +262,28 @@ export function isSpecificLocation(loc: string | null | undefined): boolean {
 }
 
 /**
- * Generates the clean WhatsApp text message for the driver with:
- * - Order details (Passenger, Date, Flight/Pickup, Origin, Destination, Pax, Amount)
- * - Service status tracking links
- * - Conditional Google Maps route link IF both origin and destination are specific/well-defined.
+ * Generates the clean WhatsApp text message for the driver for an ARRIVAL leg:
+ * - Arrival Flight, Pickup Time at Airport, Hotel Destination
+ * - Status links with -L suffix (https://la-chila-app.vercel.app/status/[code]-L?step=...)
+ * - Conditional Google Maps link from Cancun Airport to Destination if destination is explicit
  */
-export function generateDriverWhatsAppMessage(res: Reservation): string {
-  const passenger = res.name || res.arrivalName || res.departureName || 'Cliente';
-  const dateStr = toMexicanDateFormat(res.dateArrival || res.dateDeparture) || 'DD/MM/YYYY';
+export function generateDriverArrivalWhatsAppMessage(res: Reservation): string {
+  const passenger = res.arrivalName || res.name || 'Cliente';
+  const dateStr = toMexicanDateFormat(res.dateArrival) || toMexicanDateFormat(res.dateDeparture) || 'DD/MM/YYYY';
 
+  const arrFlight = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ');
   let flightPickup = '-';
-  if (res.serviceType === "Llegada y Salida") {
-    const arrFlight = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ');
-    flightPickup = `${arrFlight ? `${arrFlight} ` : ''}(Llegada: ${res.arrivalTime || '-'}) | Pick-up: ${res.departureTimeHotel || '-'}`;
-  } else if (res.serviceType === "Solo Llegada") {
-    const arrFlight = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ');
-    flightPickup = `${arrFlight ? `${arrFlight} ` : ''}${res.arrivalTime ? `(${res.arrivalTime} hrs)` : ''}`.trim() || '-';
-  } else if (res.serviceType === "Solo Salida") {
-    flightPickup = `Pick-up: ${res.departureTimeHotel || '-'}${res.departureTimeFlight ? ` (Vuelo: ${res.departureTimeFlight})` : ''}`;
-  } else if (res.serviceType === "Solo Traslado") {
-    flightPickup = `Pick-up: ${res.departureTimeHotel || '-'}`;
-  } else if (res.serviceType === "Tour o Excursión") {
-    flightPickup = `Pick-up: ${res.departureTimeHotel || '-'}${res.tourName ? ` (${res.tourName})` : ''}`;
-  } else if (res.serviceType === "Circuito") {
-    flightPickup = `Inicio: ${res.departureTimeHotel || '-'}`;
-  } else {
-    flightPickup = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ') || res.departureTimeHotel || res.arrivalTime || '-';
+  if (arrFlight && res.arrivalTime) {
+    flightPickup = `${arrFlight} (Llegada: ${res.arrivalTime} hrs)`;
+  } else if (arrFlight) {
+    flightPickup = arrFlight;
+  } else if (res.arrivalTime) {
+    flightPickup = `Llegada: ${res.arrivalTime} hrs`;
   }
 
-  const origin = res.origin || res.originDeparture || 'Aeropuerto Cancún';
-  const destination = res.arrivalDestination || res.departureDestination || res.destination || 'Por confirmar';
-  const pax = res.peopleCount || res.peopleCountArrival || res.peopleCountDeparture || 1;
+  const origin = res.origin || 'Aeropuerto Internacional de Cancún';
+  const destination = res.arrivalDestination || res.destination || 'Por confirmar';
+  const pax = res.peopleCountArrival || res.peopleCount || 1;
 
   let amountStr = '$0 MXN';
   if (res.toPayUsd > 0) {
@@ -309,7 +300,7 @@ export function generateDriverWhatsAppMessage(res: Reservation): string {
 
   const code = res.reservationNo || 'QTC';
 
-  let msg = `🚖 ORDEN DE SERVICIO - QUICK TRAVEL CANCÚN\n`;
+  let msg = `🚖 ORDEN DE SERVICIO (LLEGADA) - QUICK TRAVEL CANCÚN\n`;
   msg += `👤 Pasajero: ${passenger}\n`;
   msg += `📅 Fecha: ${dateStr}\n`;
   msg += `⏰ Vuelo / Pickup: ${flightPickup}\n`;
@@ -318,12 +309,11 @@ export function generateDriverWhatsAppMessage(res: Reservation): string {
   msg += `👥 Pasajeros: ${pax} PAX\n`;
   msg += `💰 COBRO AL CLIENTE: ${amountStr}\n\n`;
   msg += `🔗 ESTATUS DEL SERVICIO:\n`;
-  msg += `1️⃣ Cliente a bordo: https://quicktravelcancun.app/status/${code}?step=onboard\n`;
-  msg += `2️⃣ Servicio Finalizado: https://quicktravelcancun.app/status/${code}?step=completed`;
+  msg += `1️⃣ Cliente a bordo: https://la-chila-app.vercel.app/status/${code}-L?step=onboard\n`;
+  msg += `2️⃣ Servicio Finalizado: https://la-chila-app.vercel.app/status/${code}-L?step=completed`;
 
-  // Conditional Google Maps Link:
-  // IF origin and destination are clearly defined and specific, append Google Maps route
-  if (isSpecificLocation(origin) && isSpecificLocation(destination)) {
+  // Include Google Maps link from Cancun Airport to Destination if destination is explicit
+  if (isSpecificLocation(destination)) {
     const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;
     msg += `\n\n🗺️ RUTA EN GOOGLE MAPS:\n${mapsUrl}`;
   }
@@ -332,10 +322,94 @@ export function generateDriverWhatsAppMessage(res: Reservation): string {
 }
 
 /**
+ * Generates the clean WhatsApp text message for the driver for a DEPARTURE leg:
+ * - Departure Flight, Hotel Pickup Time, Airport Terminal Destination
+ * - Status links with -S suffix (https://la-chila-app.vercel.app/status/[code]-S?step=...)
+ * - Conditional Google Maps link from Hotel/Origin to Cancun Airport if origin is explicit
+ */
+export function generateDriverDepartureWhatsAppMessage(res: Reservation): string {
+  const passenger = res.departureName || res.name || 'Cliente';
+  const dateStr = toMexicanDateFormat(res.dateDeparture) || toMexicanDateFormat(res.dateArrival) || 'DD/MM/YYYY';
+
+  let flightPickup = '-';
+  if (res.departureTimeHotel && res.departureTimeFlight) {
+    flightPickup = `Pick-up Hotel: ${res.departureTimeHotel} hrs (Vuelo: ${res.departureTimeFlight} hrs)`;
+  } else if (res.departureTimeHotel) {
+    flightPickup = `Pick-up Hotel: ${res.departureTimeHotel} hrs`;
+  } else if (res.departureTimeFlight) {
+    flightPickup = `Vuelo: ${res.departureTimeFlight} hrs`;
+  }
+
+  const origin = res.originDeparture || res.arrivalDestination || res.destination || 'Hotel / Origen';
+  const destination = res.departureDestination || 'Aeropuerto Internacional de Cancún';
+  const pax = res.peopleCountDeparture || res.peopleCount || 1;
+
+  let amountStr = '$0 MXN';
+  if (res.serviceType === "Llegada y Salida") {
+    amountStr = 'Pagado en Llegada / $0';
+  } else if (res.toPayUsd > 0) {
+    amountStr = `$${res.toPayUsd} USD`;
+  } else if (res.toPayMxn > 0) {
+    amountStr = `$${res.toPayMxn} MXN`;
+  } else if (res.depositUsd > 0) {
+    amountStr = `Pagado ($${res.depositUsd} USD)`;
+  } else if (res.depositMxn > 0) {
+    amountStr = `Pagado ($${res.depositMxn} MXN)`;
+  } else {
+    amountStr = 'Pagado';
+  }
+
+  const code = res.reservationNo || 'QTC';
+
+  let msg = `🚖 ORDEN DE SERVICIO (SALIDA) - QUICK TRAVEL CANCÚN\n`;
+  msg += `👤 Pasajero: ${passenger}\n`;
+  msg += `📅 Fecha: ${dateStr}\n`;
+  msg += `⏰ Vuelo / Pickup: ${flightPickup}\n`;
+  msg += `📍 Origen: ${origin}\n`;
+  msg += `🏁 Destino: ${destination}\n`;
+  msg += `👥 Pasajeros: ${pax} PAX\n`;
+  msg += `💰 COBRO AL CLIENTE: ${amountStr}\n\n`;
+  msg += `🔗 ESTATUS DEL SERVICIO:\n`;
+  msg += `1️⃣ Cliente a bordo: https://la-chila-app.vercel.app/status/${code}-S?step=onboard\n`;
+  msg += `2️⃣ Servicio Finalizado: https://la-chila-app.vercel.app/status/${code}-S?step=completed`;
+
+  // Include Google Maps link from Hotel/Origin to Cancun Airport if origin is explicit
+  if (isSpecificLocation(origin)) {
+    const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;
+    msg += `\n\n🗺️ RUTA EN GOOGLE MAPS:\n${mapsUrl}`;
+  }
+
+  return msg;
+}
+
+export function getDriverArrivalWhatsAppUrl(res: Reservation, driverPhone?: string): string {
+  const message = generateDriverArrivalWhatsAppMessage(res);
+  return getWhatsAppApiSendLink(message, driverPhone);
+}
+
+export function getDriverDepartureWhatsAppUrl(res: Reservation, driverPhone?: string): string {
+  const message = generateDriverDepartureWhatsAppMessage(res);
+  return getWhatsAppApiSendLink(message, driverPhone);
+}
+
+/**
+ * Legacy wrapper: generates Arrival or Departure message based on legType or serviceType
+ */
+export function generateDriverWhatsAppMessage(res: Reservation, legType?: 'arrival' | 'departure'): string {
+  if (legType === 'arrival') return generateDriverArrivalWhatsAppMessage(res);
+  if (legType === 'departure') return generateDriverDepartureWhatsAppMessage(res);
+
+  if (res.serviceType === "Solo Salida" || res.serviceType === "Solo Traslado" || res.serviceType === "Tour o Excursión" || res.serviceType === "Circuito") {
+    return generateDriverDepartureWhatsAppMessage(res);
+  }
+  return generateDriverArrivalWhatsAppMessage(res);
+}
+
+/**
  * Returns the full WhatsApp Web / App intent URL for sending order to driver
  */
-export function getDriverWhatsAppUrl(res: Reservation, driverPhone?: string): string {
-  const message = generateDriverWhatsAppMessage(res);
+export function getDriverWhatsAppUrl(res: Reservation, driverPhone?: string, legType?: 'arrival' | 'departure'): string {
+  const message = generateDriverWhatsAppMessage(res, legType);
   return getWhatsAppApiSendLink(message, driverPhone);
 }
 
