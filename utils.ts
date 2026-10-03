@@ -235,6 +235,110 @@ export const getGoogleMapsLink = (query: string) => {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 };
 
+/**
+ * Determines whether a location string corresponds to a specific hotel, place, or full address,
+ * rather than a generic or pending placeholder.
+ */
+export function isSpecificLocation(loc: string | null | undefined): boolean {
+  if (!loc) return false;
+  const clean = loc.trim().toLowerCase();
+  if (clean.length < 3) return false;
+
+  const vagueValues = new Set([
+    '-', '--', '---', 'n/a', 'na', 'none', 'ninguno', 'ninguna',
+    'por confirmar', 'por definir', 'pendiente', 'pending', 'tbd',
+    'desconocido', 'desconocida', 'sin asignar', 'hotel', 'al hotel',
+    'cancun', 'cancún', 'aeropuerto', 'terminal', 'hotel por confirmar',
+    'hotel por definir', 'hotel pendiente', 'domicilio conocido',
+    'desconocido/a', 'por asignar', 'a confirmar', 'to be confirmed',
+    'sin destino', 'sin hotel'
+  ]);
+  if (vagueValues.has(clean)) return false;
+
+  // Generic single-word "hotel" or "hotel cancun"
+  if (/^hotel\s*(canc[uú]n)?$/i.test(clean)) return false;
+
+  return true;
+}
+
+/**
+ * Generates the clean WhatsApp text message for the driver with:
+ * - Order details (Passenger, Date, Flight/Pickup, Origin, Destination, Pax, Amount)
+ * - Service status tracking links
+ * - Conditional Google Maps route link IF both origin and destination are specific/well-defined.
+ */
+export function generateDriverWhatsAppMessage(res: Reservation): string {
+  const passenger = res.name || res.arrivalName || res.departureName || 'Cliente';
+  const dateStr = toMexicanDateFormat(res.dateArrival || res.dateDeparture) || 'DD/MM/YYYY';
+
+  let flightPickup = '-';
+  if (res.serviceType === "Llegada y Salida") {
+    const arrFlight = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ');
+    flightPickup = `${arrFlight ? `${arrFlight} ` : ''}(Llegada: ${res.arrivalTime || '-'}) | Pick-up: ${res.departureTimeHotel || '-'}`;
+  } else if (res.serviceType === "Solo Llegada") {
+    const arrFlight = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ');
+    flightPickup = `${arrFlight ? `${arrFlight} ` : ''}${res.arrivalTime ? `(${res.arrivalTime} hrs)` : ''}`.trim() || '-';
+  } else if (res.serviceType === "Solo Salida") {
+    flightPickup = `Pick-up: ${res.departureTimeHotel || '-'}${res.departureTimeFlight ? ` (Vuelo: ${res.departureTimeFlight})` : ''}`;
+  } else if (res.serviceType === "Solo Traslado") {
+    flightPickup = `Pick-up: ${res.departureTimeHotel || '-'}`;
+  } else if (res.serviceType === "Tour o Excursión") {
+    flightPickup = `Pick-up: ${res.departureTimeHotel || '-'}${res.tourName ? ` (${res.tourName})` : ''}`;
+  } else if (res.serviceType === "Circuito") {
+    flightPickup = `Inicio: ${res.departureTimeHotel || '-'}`;
+  } else {
+    flightPickup = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ') || res.departureTimeHotel || res.arrivalTime || '-';
+  }
+
+  const origin = res.origin || res.originDeparture || 'Aeropuerto Cancún';
+  const destination = res.arrivalDestination || res.departureDestination || res.destination || 'Por confirmar';
+  const pax = res.peopleCount || res.peopleCountArrival || res.peopleCountDeparture || 1;
+
+  let amountStr = '$0 MXN';
+  if (res.toPayUsd > 0) {
+    amountStr = `$${res.toPayUsd} USD`;
+  } else if (res.toPayMxn > 0) {
+    amountStr = `$${res.toPayMxn} MXN`;
+  } else if (res.depositUsd > 0) {
+    amountStr = `Pagado ($${res.depositUsd} USD)`;
+  } else if (res.depositMxn > 0) {
+    amountStr = `Pagado ($${res.depositMxn} MXN)`;
+  } else {
+    amountStr = 'Pagado';
+  }
+
+  const code = res.reservationNo || 'QTC';
+
+  let msg = `🚖 ORDEN DE SERVICIO - QUICK TRAVEL CANCÚN\n`;
+  msg += `👤 Pasajero: ${passenger}\n`;
+  msg += `📅 Fecha: ${dateStr}\n`;
+  msg += `⏰ Vuelo / Pickup: ${flightPickup}\n`;
+  msg += `📍 Origen: ${origin}\n`;
+  msg += `🏁 Destino: ${destination}\n`;
+  msg += `👥 Pasajeros: ${pax} PAX\n`;
+  msg += `💰 COBRO AL CLIENTE: ${amountStr}\n\n`;
+  msg += `🔗 ESTATUS DEL SERVICIO:\n`;
+  msg += `1️⃣ Cliente a bordo: https://quicktravelcancun.app/status/${code}?step=onboard\n`;
+  msg += `2️⃣ Servicio Finalizado: https://quicktravelcancun.app/status/${code}?step=completed`;
+
+  // Conditional Google Maps Link:
+  // IF origin and destination are clearly defined and specific, append Google Maps route
+  if (isSpecificLocation(origin) && isSpecificLocation(destination)) {
+    const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;
+    msg += `\n\n🗺️ RUTA EN GOOGLE MAPS:\n${mapsUrl}`;
+  }
+
+  return msg;
+}
+
+/**
+ * Returns the full WhatsApp Web / App intent URL for sending order to driver
+ */
+export function getDriverWhatsAppUrl(res: Reservation, driverPhone?: string): string {
+  const message = generateDriverWhatsAppMessage(res);
+  return getWhatsAppApiSendLink(message, driverPhone);
+}
+
 export const generateWhatsAppMessage = (res: Reservation) => {
   const showArrival = res.serviceType === "Llegada y Salida" || res.serviceType === "Solo Llegada";
   const showDeparture = res.serviceType === "Llegada y Salida" || res.serviceType === "Solo Salida";

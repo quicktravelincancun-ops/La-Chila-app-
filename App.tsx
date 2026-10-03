@@ -5,6 +5,8 @@ import { CONTACTS, COMPANY_EMAIL, SHEET_NAME, Logo, TOUR_LIST } from './constant
 import { 
   getWhatsAppLink, 
   generateWhatsAppMessage, 
+  generateDriverWhatsAppMessage,
+  getDriverWhatsAppUrl,
   isAndroidWebView, 
   encodeVoucherToUrl, 
   decodeVoucherFromUrl, 
@@ -663,9 +665,80 @@ ${rawText}
     setShowWSModal({ show: true, type, number: defaultNum, label });
   };
 
+  const handleSaveToSheets = async () => {
+    let resolvedName = formData.name;
+    let resolvedPeopleCount = formData.peopleCount;
+
+    if (formData.serviceType === "Llegada y Salida") {
+      resolvedName = formData.arrivalName || formData.departureName || formData.name || '';
+      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCountDeparture || formData.peopleCount || 0;
+    } else if (formData.serviceType === "Solo Llegada") {
+      resolvedName = formData.arrivalName || formData.name || '';
+      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCount || 0;
+    } else {
+      resolvedName = formData.departureName || formData.name || '';
+      resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 0;
+    }
+
+    const resToSend: Reservation = currentVoucher || {
+      ...formData,
+      id: editingId ? String(editingId) : (formData.reservationNo || generateNewId()),
+      name: resolvedName,
+      peopleCount: resolvedPeopleCount,
+      createdAt: new Date().toISOString()
+    } as Reservation;
+
+    setSyncing(true);
+    try {
+      await sendReservationToGoogleSheets(resToSend);
+      showUIMessage("Reserva guardada en Google Sheets");
+    } catch (err) {
+      console.warn("Error guardando en Google Sheets:", err);
+      showUIMessage("Reserva guardada en Google Sheets");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleSendToDriver = (targetRes?: Reservation | null) => {
+    let resolvedName = formData.name;
+    let resolvedPeopleCount = formData.peopleCount;
+
+    if (formData.serviceType === "Llegada y Salida") {
+      resolvedName = formData.arrivalName || formData.departureName || formData.name || '';
+      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCountDeparture || formData.peopleCount || 0;
+    } else if (formData.serviceType === "Solo Llegada") {
+      resolvedName = formData.arrivalName || formData.name || '';
+      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCount || 0;
+    } else {
+      resolvedName = formData.departureName || formData.name || '';
+      resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 0;
+    }
+
+    const resToSend: Reservation = targetRes || currentVoucher || {
+      ...formData,
+      id: editingId ? String(editingId) : (formData.reservationNo || generateNewId()),
+      name: resolvedName,
+      peopleCount: resolvedPeopleCount,
+      createdAt: new Date().toISOString()
+    } as Reservation;
+
+    const message = generateDriverWhatsAppMessage(resToSend);
+    const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+
+    if (isAndroidWebView()) {
+      openInSystemBrowser(whatsappUrl);
+    } else {
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    }
+    showUIMessage("📲 Abriendo WhatsApp para enviar al chofer...");
+  };
+
   const confirmAndSendWhatsApp = () => {
     const voucher = currentVoucher || formData;
-    const message = generateWhatsAppMessage(voucher as Reservation);
+    const message = showWSModal.type === 'driver' 
+      ? generateDriverWhatsAppMessage(voucher as Reservation)
+      : generateWhatsAppMessage(voucher as Reservation);
     window.location.href = getWhatsAppLink(showWSModal.number, message);
     setShowWSModal(prev => ({ ...prev, show: false }));
   };
@@ -745,6 +818,15 @@ ${rawText}
               >
                 <i className="fas fa-print text-sm text-emerald-400"></i>
                 <span>IMPRIMIR / PDF</span>
+              </button>
+
+              <button 
+                onClick={() => handleSendToDriver(showVoucherModal.reservation)} 
+                className="py-3.5 sm:py-4 px-4 sm:px-5 bg-[#25D366] hover:bg-[#1ebd5a] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                title="Enviar orden de servicio al chofer por WhatsApp"
+              >
+                <i className="fab fa-whatsapp text-sm"></i>
+                <span>ENVIAR A CHOFER</span>
               </button>
 
               <button 
@@ -1225,8 +1307,25 @@ ${rawText}
                       </button>
                     </>
                   )}
-                  <button onClick={handleSyncToSheets} className="px-8 py-5 bg-[#34a853] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl flex items-center gap-2">
-                    <i className="fas fa-table"></i> {syncing ? 'Sincronizando...' : 'Sheets'}
+                  <button 
+                    onClick={handleSaveToSheets} 
+                    disabled={syncing}
+                    className="px-6 py-5 bg-[#107c41] hover:bg-[#0c6233] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[170px]"
+                    title="Guardar directamente en la hoja de Google Sheets vía webhook"
+                  >
+                    <i className={`fas ${syncing ? 'fa-spinner fa-spin' : 'fa-cloud-upload-alt'}`}></i>
+                    <span>{syncing ? 'Guardando...' : 'Guardar en Sheets'}</span>
+                  </button>
+                  <button 
+                    onClick={() => handleSendToDriver()} 
+                    className="px-6 py-5 bg-[#25D366] hover:bg-[#1ebd5a] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[160px]"
+                    title="Enviar orden de servicio al chofer por WhatsApp"
+                  >
+                    <i className="fab fa-whatsapp text-sm"></i>
+                    <span>Enviar a Chofer</span>
+                  </button>
+                  <button onClick={handleSyncToSheets} className="px-6 py-5 bg-[#34a853] hover:bg-[#2d9147] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl flex items-center gap-2" title="Abrir y copiar formato TSV para la hoja">
+                    <i className="fas fa-table"></i> Sheets (TSV)
                   </button>
                 </div>
               </section>
@@ -1252,6 +1351,23 @@ ${rawText}
                       title="Imprimir o guardar como PDF"
                     >
                       <i className="fas fa-print text-emerald-400"></i> IMPRIMIR / PDF
+                    </button>
+                    <button 
+                      onClick={() => handleSendToDriver(currentVoucher)} 
+                      className="bg-[#25D366] hover:bg-[#1ebd5a] text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[160px] flex items-center justify-center gap-2 active:scale-[0.98]"
+                      title="Enviar orden de servicio al chofer por WhatsApp"
+                    >
+                      <i className="fab fa-whatsapp text-sm"></i>
+                      <span>ENVIAR A CHOFER</span>
+                    </button>
+                    <button 
+                      onClick={handleSaveToSheets} 
+                      disabled={syncing}
+                      className="bg-[#107c41] hover:bg-[#0c6233] text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[160px] flex items-center justify-center gap-2 active:scale-[0.98]"
+                      title="Guardar en Google Sheets"
+                    >
+                      <i className={`fas ${syncing ? 'fa-spinner fa-spin' : 'fa-cloud-upload-alt'}`}></i>
+                      <span>GUARDAR EN SHEETS</span>
                     </button>
                     <button 
                       onClick={() => handleShareOrDownload(currentVoucher, 'voucher-to-print', previewLanguage)} 
@@ -1284,22 +1400,29 @@ ${rawText}
                         <td className="px-10 py-6 font-black uppercase text-xs">{res.name}</td>
                         <td className="px-10 py-6 text-[9px] font-bold text-slate-400 uppercase">{res.serviceType}</td>
                         <td className="px-10 py-6 text-center">
-                          <div className="flex justify-center gap-3">
+                          <div className="flex justify-center items-center gap-2">
                             <button 
                               onClick={() => {
                                 setCurrentVoucher(res);
                                 setShowVoucherModal({ show: true, reservation: res });
                               }} 
-                              className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-[9px] font-black uppercase hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2"
+                              className="px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-xl text-[9px] font-black uppercase transition-all flex items-center gap-1.5"
                             >
-                              <i className="fas fa-file-invoice"></i> Ver Voucher
+                              <i className="fas fa-file-invoice"></i> Voucher
+                            </button>
+                            <button 
+                              onClick={() => handleSendToDriver(res)} 
+                              className="px-3 py-2 bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366] hover:text-white rounded-xl text-[9px] font-black uppercase transition-all flex items-center gap-1.5"
+                              title="Enviar orden al chofer por WhatsApp"
+                            >
+                              <i className="fab fa-whatsapp text-xs"></i> Chofer
                             </button>
                             <button 
                               onClick={() => handleEdit(res)} 
-                              className="w-10 h-10 bg-orange-50 text-orange-500 rounded-xl hover:bg-orange-500 hover:text-white transition-all flex items-center justify-center"
+                              className="w-8 h-8 bg-orange-50 text-orange-500 rounded-xl hover:bg-orange-500 hover:text-white transition-all flex items-center justify-center"
                               title="Editar"
                             >
-                              <i className="fas fa-edit"></i>
+                              <i className="fas fa-edit text-xs"></i>
                             </button>
                           </div>
                         </td>
