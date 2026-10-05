@@ -715,13 +715,15 @@ ${rawText}
       resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 0;
     }
 
-    const resToSend: Reservation = targetRes || currentVoucher || {
+    const currentFormDataRes: Reservation = {
       ...formData,
       id: editingId ? String(editingId) : (formData.reservationNo || generateNewId()),
       name: resolvedName,
       peopleCount: resolvedPeopleCount,
       createdAt: new Date().toISOString()
     } as Reservation;
+
+    const resToSend: Reservation = targetRes || currentFormDataRes;
 
     setSyncing(true);
     try {
@@ -1519,7 +1521,7 @@ ${rawText}
                       </button>
                     )}
                     <button 
-                      onClick={handleSaveToSheets} 
+                      onClick={() => handleSaveToSheets(currentVoucher)} 
                       disabled={syncing}
                       className="bg-[#107c41] hover:bg-[#0c6233] text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[160px] flex items-center justify-center gap-2 active:scale-[0.98]"
                       title="Guardar en Google Sheets"

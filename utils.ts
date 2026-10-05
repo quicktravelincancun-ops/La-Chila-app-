@@ -192,7 +192,7 @@ export async function sendReservationToGoogleSheets(res: Reservation | any): Pro
       }
     }
 
-    const payload = {
+    const reservation = {
       code: res.code || res.reservationNo || res.id || '',
       date: dateFormatted || '',
       time: timeFormatted || '',
@@ -209,7 +209,18 @@ export async function sendReservationToGoogleSheets(res: Reservation | any): Pro
       method: 'POST',
       mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        code: reservation.code || '',
+        date: reservation.date || '',
+        time: reservation.time || '',
+        serviceType: reservation.serviceType || '',
+        origin: reservation.origin || '',
+        destination: reservation.destination || '',
+        pax: reservation.pax || '',
+        passenger: reservation.passenger || '',
+        flight: reservation.flight || '',
+        amount: reservation.amount || ''
+      })
     });
 
     return true;
