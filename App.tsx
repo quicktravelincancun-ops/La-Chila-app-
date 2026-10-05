@@ -16,6 +16,7 @@ import {
   shareOrPrintVoucher,
   toMexicanDateFormat,
   toISOFormat,
+  formatDateToSpanishLong,
   sendReservationToGoogleSheets
 } from './utils';
 import { GoogleGenAI } from '@google/genai';
@@ -1632,79 +1633,158 @@ const InputGroup: React.FC<{
   placeholder?: string; 
   highlight?: boolean 
 }> = ({ label, name, type = 'text', value, onChange, placeholder, highlight = false }) => {
-  const hiddenDateRef = React.useRef<HTMLInputElement | null>(null);
+  const dateInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [manualMode, setManualMode] = React.useState(false);
+  const [manualText, setManualText] = React.useState(() => toMexicanDateFormat(value) || value || '');
+
+  React.useEffect(() => {
+    if (type === 'date') {
+      setManualText(toMexicanDateFormat(value) || value || '');
+    }
+  }, [value, type]);
 
   if (type === 'date') {
-    const displayVal = toMexicanDateFormat(value);
     const isoVal = toISOFormat(value);
+    const mexicanFormatted = toMexicanDateFormat(value);
+    const spanishLong = formatDateToSpanishLong(value);
 
+    // Native Date Picker Change
     const handleNativeDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const rawIso = e.target.value;
       if (rawIso) {
         const mex = toMexicanDateFormat(rawIso);
+        setManualText(mex);
         onChange?.({ target: { name, value: mex } });
+      } else {
+        setManualText('');
+        onChange?.({ target: { name, value: '' } });
       }
     };
 
-    const handleManualChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      onChange?.({ target: { name, value: e.target.value } });
+    // Manual Text Typing Change (allows typing without reformatting interference)
+    const handleManualTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value;
+      setManualText(val);
+      onChange?.({ target: { name, value: val } });
     };
 
-    const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-      const formatted = toMexicanDateFormat(e.target.value);
-      if (formatted && formatted !== e.target.value) {
+    // On manual blur, format to standard Mexican DD/MM/YYYY
+    const handleManualBlur = () => {
+      if (!manualText) return;
+      const formatted = toMexicanDateFormat(manualText);
+      if (formatted && formatted !== manualText) {
+        setManualText(formatted);
         onChange?.({ target: { name, value: formatted } });
       }
     };
 
-    const openDatePicker = () => {
-      if (hiddenDateRef.current) {
+    // Quick Date setter: Today (0), Tomorrow (+1)
+    const setQuickDate = (offsetDays: number) => {
+      const d = new Date();
+      d.setDate(d.getDate() + offsetDays);
+      const iso = d.toISOString().split('T')[0];
+      const mex = toMexicanDateFormat(iso);
+      setManualText(mex);
+      onChange?.({ target: { name, value: mex } });
+    };
+
+    const openCalendarPicker = () => {
+      if (dateInputRef.current) {
         try {
-          if (typeof (hiddenDateRef.current as any).showPicker === 'function') {
-            (hiddenDateRef.current as any).showPicker();
+          if (typeof (dateInputRef.current as any).showPicker === 'function') {
+            (dateInputRef.current as any).showPicker();
           } else {
-            hiddenDateRef.current.focus();
+            dateInputRef.current.focus();
           }
         } catch {
-          hiddenDateRef.current.focus();
+          dateInputRef.current.focus();
         }
       }
     };
 
     return (
       <div className="flex flex-col group relative">
-        <div className="flex justify-between items-center mb-2 pl-1">
-          <label className="text-[10px] uppercase font-black text-gray-400 tracking-widest">{label}</label>
-          <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">DD/MM/AAAA</span>
+        <div className="flex justify-between items-center mb-1.5 pl-1 flex-wrap gap-1">
+          <div className="flex items-center gap-1.5">
+            <label className="text-[10px] uppercase font-black text-gray-500 tracking-widest">{label}</label>
+            <span className="text-[9px] font-black text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+              DD/MM/AAAA
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setQuickDate(0)}
+              className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors border border-emerald-200 cursor-pointer"
+              title="Poner fecha de Hoy"
+            >
+              Hoy
+            </button>
+            <button
+              type="button"
+              onClick={() => setQuickDate(1)}
+              className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors border border-amber-200 cursor-pointer"
+              title="Poner fecha de Mañana"
+            >
+              Mañana
+            </button>
+            <button
+              type="button"
+              onClick={() => setManualMode(!manualMode)}
+              className="text-[9px] font-black text-slate-500 hover:text-blue-600 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded-md transition-colors border border-slate-200 cursor-pointer"
+              title={manualMode ? "Cambiar a selector de calendario" : "Escribir fecha manualmente como texto"}
+            >
+              <i className={`fas ${manualMode ? 'fa-calendar-alt text-blue-600' : 'fa-pen'} mr-1`}></i>
+              {manualMode ? 'Calendario' : 'Texto'}
+            </button>
+          </div>
         </div>
+
         <div className="relative flex items-center">
-          <input
-            type="text"
-            name={name}
-            value={displayVal}
-            onChange={handleManualChange}
-            onBlur={handleBlur}
-            placeholder={placeholder || "DD/MM/AAAA"}
-            maxLength={10}
-            className={`w-full border-2 border-gray-100 rounded-2xl px-5 py-4 text-sm font-bold text-slate-800 bg-white focus:border-blue-500 outline-none transition-all shadow-sm pr-12 ${highlight ? 'text-orange-600 border-orange-50' : ''}`}
-          />
-          <button
-            type="button"
-            onClick={openDatePicker}
-            title="Abrir selector de fecha"
-            className="absolute right-3.5 w-8 h-8 rounded-xl bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 flex items-center justify-center transition-all cursor-pointer"
-          >
-            <i className="far fa-calendar-alt text-sm"></i>
-          </button>
-          <input
-            ref={hiddenDateRef}
-            type="date"
-            tabIndex={-1}
-            value={isoVal}
-            onChange={handleNativeDateChange}
-            className="sr-only pointer-events-none absolute w-0 h-0 opacity-0"
-          />
+          {manualMode ? (
+            <input
+              type="text"
+              name={name}
+              value={manualText}
+              onChange={handleManualTextChange}
+              onBlur={handleManualBlur}
+              placeholder={placeholder || "DD/MM/AAAA (ej. 25/10/2026)"}
+              maxLength={10}
+              className={`w-full border-2 border-blue-400 rounded-2xl px-5 py-4 text-sm font-bold text-slate-800 bg-white focus:border-blue-600 outline-none transition-all shadow-sm ${highlight ? 'text-orange-600 border-orange-50' : ''}`}
+            />
+          ) : (
+            <div className="relative w-full flex items-center">
+              <input
+                ref={dateInputRef}
+                type="date"
+                name={name}
+                value={isoVal}
+                onChange={handleNativeDateChange}
+                onClick={openCalendarPicker}
+                className={`w-full border-2 border-gray-100 rounded-2xl px-5 py-4 text-sm font-bold text-slate-800 bg-white focus:border-blue-500 outline-none transition-all shadow-sm cursor-pointer ${highlight ? 'text-orange-600 border-orange-50' : ''}`}
+              />
+              <button
+                type="button"
+                onClick={openCalendarPicker}
+                title="Abrir calendario"
+                className="absolute right-3.5 w-8 h-8 rounded-xl bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 flex items-center justify-center transition-all cursor-pointer pointer-events-auto"
+              >
+                <i className="far fa-calendar-alt text-sm"></i>
+              </button>
+            </div>
+          )}
         </div>
+
+        {value && spanishLong !== '---' && (
+          <div className="mt-1 pl-1 text-[10px] font-semibold text-slate-500 flex items-center gap-1.5">
+            <i className="far fa-calendar-check text-emerald-500"></i>
+            <span>{spanishLong}</span>
+            {mexicanFormatted && (
+              <span className="font-mono font-bold text-slate-600">({mexicanFormatted})</span>
+            )}
+          </div>
+        )}
       </div>
     );
   }

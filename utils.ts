@@ -43,13 +43,17 @@ export function toMexicanDateFormat(dateStr: string | null | undefined): string 
     return `${d}/${m}/${y}`;
   }
 
-  // Try parsing with JS Date
-  const parsed = new Date(clean);
-  if (!isNaN(parsed.getTime())) {
-    const d = String(parsed.getDate()).padStart(2, '0');
-    const m = String(parsed.getMonth() + 1).padStart(2, '0');
-    const y = parsed.getFullYear();
-    return `${d}/${m}/${y}`;
+  // Only attempt JS Date parsing if string looks like a full date (at least 8 chars and contains delimiters)
+  if (clean.length >= 8 && /[-/.\s]/.test(clean)) {
+    const parsed = new Date(clean);
+    if (!isNaN(parsed.getTime())) {
+      const d = String(parsed.getDate()).padStart(2, '0');
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const y = parsed.getFullYear();
+      if (y > 1900 && y < 2100) {
+        return `${d}/${m}/${y}`;
+      }
+    }
   }
 
   return clean;
