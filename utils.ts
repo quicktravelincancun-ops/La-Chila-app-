@@ -264,7 +264,7 @@ export function isSpecificLocation(loc: string | null | undefined): boolean {
 /**
  * Generates the clean WhatsApp text message for the driver for an ARRIVAL leg:
  * - Arrival Flight, Pickup Time at Airport, Hotel Destination
- * - Status links with -L suffix (https://la-chila-app.vercel.app/status/[code]-L?step=...)
+ * - Status links with -L suffix (https://app.quicktravelcancun.com/status/[code]-L?step=...)
  * - Conditional Google Maps link from Cancun Airport to Destination if destination is explicit
  */
 export function generateDriverArrivalWhatsAppMessage(res: Reservation): string {
@@ -309,8 +309,8 @@ export function generateDriverArrivalWhatsAppMessage(res: Reservation): string {
   msg += `👥 Pasajeros: ${pax} PAX\n`;
   msg += `💰 COBRO AL CLIENTE: ${amountStr}\n\n`;
   msg += `🔗 ESTATUS DEL SERVICIO:\n`;
-  msg += `1️⃣ Cliente a bordo: https://la-chila-app.vercel.app/status/${code}-L?step=onboard\n`;
-  msg += `2️⃣ Servicio Finalizado: https://la-chila-app.vercel.app/status/${code}-L?step=completed`;
+  msg += `1️⃣ Cliente a bordo: https://app.quicktravelcancun.com/status/${code}-L?step=onboard\n`;
+  msg += `2️⃣ Servicio Finalizado: https://app.quicktravelcancun.com/status/${code}-L?step=completed`;
 
   // Include Google Maps link from Cancun Airport to Destination if destination is explicit
   if (isSpecificLocation(destination)) {
@@ -324,7 +324,7 @@ export function generateDriverArrivalWhatsAppMessage(res: Reservation): string {
 /**
  * Generates the clean WhatsApp text message for the driver for a DEPARTURE leg:
  * - Departure Flight, Hotel Pickup Time, Airport Terminal Destination
- * - Status links with -S suffix (https://la-chila-app.vercel.app/status/[code]-S?step=...)
+ * - Status links with -S suffix (https://app.quicktravelcancun.com/status/[code]-S?step=...)
  * - Conditional Google Maps link from Hotel/Origin to Cancun Airport if origin is explicit
  */
 export function generateDriverDepartureWhatsAppMessage(res: Reservation): string {
@@ -370,8 +370,8 @@ export function generateDriverDepartureWhatsAppMessage(res: Reservation): string
   msg += `👥 Pasajeros: ${pax} PAX\n`;
   msg += `💰 COBRO AL CLIENTE: ${amountStr}\n\n`;
   msg += `🔗 ESTATUS DEL SERVICIO:\n`;
-  msg += `1️⃣ Cliente a bordo: https://la-chila-app.vercel.app/status/${code}-S?step=onboard\n`;
-  msg += `2️⃣ Servicio Finalizado: https://la-chila-app.vercel.app/status/${code}-S?step=completed`;
+  msg += `1️⃣ Cliente a bordo: https://app.quicktravelcancun.com/status/${code}-S?step=onboard\n`;
+  msg += `2️⃣ Servicio Finalizado: https://app.quicktravelcancun.com/status/${code}-S?step=completed`;
 
   // Include Google Maps link from Hotel/Origin to Cancun Airport if origin is explicit
   if (isSpecificLocation(origin)) {

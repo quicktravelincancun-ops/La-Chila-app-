@@ -52,6 +52,12 @@ const App: React.FC = () => {
     reservation: Reservation | null;
   }>({ show: false, reservation: null });
 
+  const [driverStatusView, setDriverStatusView] = useState<{
+    code: string;
+    step: 'onboard' | 'completed';
+    timestamp: string;
+  } | null>(null);
+
   const generateNewId = () => {
     const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     let randomPart = '';
@@ -141,6 +147,32 @@ const App: React.FC = () => {
       }
     } else if (!editingId && formData.reservationNo === '') {
       setFormData(prev => ({ ...prev, reservationNo: generateNewId() }));
+    }
+
+    // Check if opened from a driver status link (/status/:code?step=onboard|completed)
+    try {
+      const path = window.location.pathname;
+      const searchParams = new URLSearchParams(window.location.search);
+      const stepParam = searchParams.get('step');
+      if (path.includes('/status') || stepParam) {
+        let code = '';
+        const match = path.match(/\/status\/([^/?#]+)/);
+        if (match && match[1]) {
+          code = decodeURIComponent(match[1]);
+        } else if (searchParams.get('code')) {
+          code = searchParams.get('code') || '';
+        }
+        if (code || stepParam) {
+          const stepVal = stepParam === 'completed' ? 'completed' : 'onboard';
+          setDriverStatusView({
+            code: code || 'SERVICIO',
+            step: stepVal,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Status link detection error:", e);
     }
   }, []);
 
@@ -667,7 +699,7 @@ ${rawText}
     setShowWSModal({ show: true, type, number: defaultNum, label });
   };
 
-  const handleSaveToSheets = async () => {
+  const handleSaveToSheets = async (targetRes?: Reservation | null) => {
     let resolvedName = formData.name;
     let resolvedPeopleCount = formData.peopleCount;
 
@@ -682,7 +714,7 @@ ${rawText}
       resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 0;
     }
 
-    const resToSend: Reservation = currentVoucher || {
+    const resToSend: Reservation = targetRes || currentVoucher || {
       ...formData,
       id: editingId ? String(editingId) : (formData.reservationNo || generateNewId()),
       name: resolvedName,
@@ -851,12 +883,88 @@ ${rawText}
               )}
 
               <button 
+                onClick={() => handleSaveToSheets(showVoucherModal.reservation)} 
+                disabled={syncing}
+                className="py-3.5 sm:py-4 px-4 sm:px-5 bg-[#107c41] hover:bg-[#0c6233] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                title="Guardar directamente en la hoja de Google Sheets vía webhook"
+              >
+                <i className={`fas ${syncing ? 'fa-spinner fa-spin' : 'fa-cloud-upload-alt'}`}></i>
+                <span>GUARDAR EN SHEETS</span>
+              </button>
+
+              <button 
                 onClick={() => handleShareOrDownload(showVoucherModal.reservation!, 'voucher-modal-print', previewLanguage)} 
                 disabled={isExportingPDF}
                 className="flex-1 py-3.5 sm:py-4 px-5 sm:px-6 bg-[#0a305e] hover:bg-blue-900 text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-2.5 disabled:opacity-50 active:scale-[0.98]"
               >
                 <i className={`fas ${isExportingPDF ? 'fa-spinner fa-spin' : (isWebView ? 'fa-external-link-alt' : 'fa-share-nodes')} text-base text-blue-300`}></i>
                 <span>{isExportingPDF ? 'PREPARANDO VOUCHER...' : 'COMPARTIR / DESCARGAR VOUCHER'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {driverStatusView && (
+        <div className="fixed inset-0 z-[400] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-8 text-center shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95">
+            <div className={`w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center text-3xl shadow-lg ${driverStatusView.step === 'onboard' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-[#0a305e]'}`}>
+              {driverStatusView.step === 'onboard' ? '🚖' : '🏁'}
+            </div>
+            
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-100 px-3 py-1 rounded-full">
+              Quick Travel Cancún • Control Operativo
+            </span>
+
+            <h2 className="text-xl font-black text-slate-900 uppercase mt-4">
+              {driverStatusView.step === 'onboard' ? 'Cliente a Bordo' : 'Servicio Finalizado'}
+            </h2>
+
+            <div className="my-5 p-4 bg-slate-50 rounded-2xl border border-slate-100 text-left space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400 font-bold uppercase">Orden:</span>
+                <span className="font-mono font-black text-[#0a305e]">{driverStatusView.code}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400 font-bold uppercase">Estatus:</span>
+                <span className="font-bold text-emerald-600 uppercase">
+                  {driverStatusView.step === 'onboard' ? '🟢 En camino al destino' : '✅ Completado'}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400 font-bold uppercase">Hora registrada:</span>
+                <span className="font-medium text-slate-700">{driverStatusView.timestamp} hrs</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+              {driverStatusView.step === 'onboard'
+                ? 'El abordaje del cliente ha sido registrado en el sistema. Conduzca con precaución hacia el destino acordado.'
+                : 'El servicio ha sido marcado como finalizado con éxito. ¡Excelente trabajo!'}
+            </p>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  const statusLabel = driverStatusView.step === 'onboard' ? 'Cliente a bordo (En camino)' : 'Servicio finalizado con éxito';
+                  const message = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n\n📋 *Orden:* ${driverStatusView.code}\n📍 *Estatus:* ${statusLabel}\n⏰ *Hora:* ${driverStatusView.timestamp} hrs`;
+                  const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+                  window.open(url, '_blank');
+                }}
+                className="w-full py-4 bg-[#25D366] hover:bg-[#1ebd5a] text-white rounded-2xl font-black uppercase text-xs shadow-lg transition-all flex items-center justify-center gap-2"
+              >
+                <i className="fab fa-whatsapp text-base"></i>
+                <span>Notificar a Cabina por WhatsApp</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setDriverStatusView(null);
+                  window.history.replaceState({}, '', '/');
+                }}
+                className="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-black uppercase text-xs transition-all"
+              >
+                Ir al Sistema Principal
               </button>
             </div>
           </div>
@@ -1329,13 +1437,13 @@ ${rawText}
                     </>
                   )}
                   <button 
-                    onClick={handleSaveToSheets} 
+                    onClick={() => handleSaveToSheets()} 
                     disabled={syncing}
                     className="px-6 py-5 bg-[#107c41] hover:bg-[#0c6233] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[170px]"
                     title="Guardar directamente en la hoja de Google Sheets vía webhook"
                   >
                     <i className={`fas ${syncing ? 'fa-spinner fa-spin' : 'fa-cloud-upload-alt'}`}></i>
-                    <span>{syncing ? 'Guardando...' : 'Guardar en Sheets'}</span>
+                    <span>{syncing ? 'GUARDANDO...' : 'GUARDAR EN SHEETS'}</span>
                   </button>
                   {(formData.serviceType === "Llegada y Salida" || formData.serviceType === "Solo Llegada") && (
                     <button 
@@ -1345,7 +1453,7 @@ ${rawText}
                     >
                       <i className="fab fa-whatsapp text-sm"></i>
                       <i className="fas fa-plane-arrival text-xs"></i>
-                      <span>Enviar Llegada a Chofer</span>
+                      <span>ENVIAR LLEGADA A CHOFER</span>
                     </button>
                   )}
                   {(formData.serviceType === "Llegada y Salida" || formData.serviceType === "Solo Salida" || formData.serviceType === "Solo Traslado" || formData.serviceType === "Tour o Excursión" || formData.serviceType === "Circuito") && (
@@ -1356,7 +1464,7 @@ ${rawText}
                     >
                       <i className="fab fa-whatsapp text-sm"></i>
                       <i className="fas fa-plane-departure text-xs"></i>
-                      <span>Enviar Salida a Chofer</span>
+                      <span>ENVIAR SALIDA A CHOFER</span>
                     </button>
                   )}
                   <button onClick={handleSyncToSheets} className="px-6 py-5 bg-[#34a853] hover:bg-[#2d9147] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl flex items-center gap-2" title="Abrir y copiar formato TSV para la hoja">
