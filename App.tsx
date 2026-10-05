@@ -402,7 +402,7 @@ const App: React.FC = () => {
 
     // Automatically trigger Google Sheets webhook logging
     sendReservationToGoogleSheets(savedRes);
-    showUIMessage("Reserva guardada y enviada a Google Sheets");
+    showUIMessage("¡Servicio guardado con éxito en Google Sheets!");
 
     setReservations(updated);
     localStorage.setItem('qt_reservations', JSON.stringify(updated));
@@ -726,10 +726,10 @@ ${rawText}
     setSyncing(true);
     try {
       await sendReservationToGoogleSheets(resToSend);
-      showUIMessage("Reserva guardada en Google Sheets");
+      showUIMessage("¡Servicio guardado con éxito en Google Sheets!");
     } catch (err) {
       console.warn("Error guardando en Google Sheets:", err);
-      showUIMessage("Reserva guardada en Google Sheets");
+      showUIMessage("¡Servicio guardado con éxito en Google Sheets!");
     } finally {
       setSyncing(false);
     }

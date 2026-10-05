@@ -161,58 +161,55 @@ export const GOOGLE_SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKf
 
 /**
  * Sends reservation payload to Google Sheets webhook in background (POST request).
- * Uses text/plain and no-cors to prevent browser CORS preflight blocking with Google Apps Script.
+ * Uses text/plain;charset=utf-8 and no-cors to prevent browser CORS preflight blocking with Google Apps Script.
  */
-export async function sendReservationToGoogleSheets(res: Reservation): Promise<boolean> {
+export async function sendReservationToGoogleSheets(res: Reservation | any): Promise<boolean> {
   try {
     const flightInfo = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ').trim() ||
-      (res.departureTimeFlight ? `Vuelo ${res.departureTimeFlight}` : '-');
+      (res.departureTimeFlight ? `Vuelo ${res.departureTimeFlight}` : '') ||
+      (res.flight || '');
 
-    const destination = res.arrivalDestination || res.departureDestination || res.destination || res.originDeparture || '-';
+    const origin = res.origin || res.originDeparture || '';
+    const destination = res.destination || res.arrivalDestination || res.departureDestination || '';
 
-    const dateFormatted = toMexicanDateFormat(res.dateArrival || res.dateDeparture);
+    const dateFormatted = toMexicanDateFormat(res.dateArrival || res.dateDeparture || res.date) || res.date || '';
+    const timeFormatted = res.time || res.arrivalTime || res.departureTimeHotel || '';
+    const passengerName = res.passenger || res.name || res.arrivalName || res.departureName || '';
+    const paxValue = res.pax !== undefined && res.pax !== null && res.pax !== ''
+      ? String(res.pax)
+      : (res.peopleCount ? String(res.peopleCount) : (res.peopleCountArrival ? String(res.peopleCountArrival) : (res.peopleCountDeparture ? String(res.peopleCountDeparture) : '')));
 
-    let amountStr = '0';
-    if (res.toPayUsd > 0) {
-      amountStr = `$${res.toPayUsd} USD`;
-    } else if (res.toPayMxn > 0) {
-      amountStr = `$${res.toPayMxn} MXN`;
-    } else if (res.depositUsd > 0) {
-      amountStr = `Pagado ($${res.depositUsd} USD)`;
-    } else if (res.depositMxn > 0) {
-      amountStr = `Pagado ($${res.depositMxn} MXN)`;
+    let amountStr = res.amount || '';
+    if (!amountStr) {
+      if (res.toPayUsd > 0) {
+        amountStr = `$${res.toPayUsd} USD`;
+      } else if (res.toPayMxn > 0) {
+        amountStr = `$${res.toPayMxn} MXN`;
+      } else if (res.depositUsd > 0) {
+        amountStr = `Pagado ($${res.depositUsd} USD)`;
+      } else if (res.depositMxn > 0) {
+        amountStr = `Pagado ($${res.depositMxn} MXN)`;
+      }
     }
 
-    const reservationPayload = {
-      code: res.reservationNo,
-      passenger: res.name || res.arrivalName || res.departureName || '-',
-      serviceType: res.serviceType + (res.transferSubtype ? ` (${res.transferSubtype})` : ''),
-      date: dateFormatted,
-      flight: flightInfo,
-      destination: destination,
-      pax: res.peopleCount || res.peopleCountArrival || res.peopleCountDeparture || 1,
-      amount: amountStr,
-      // Additional complementary keys to ensure maximum compatibility
-      reservationNo: res.reservationNo,
-      name: res.name || res.arrivalName || res.departureName || '-',
-      dateArrival: toMexicanDateFormat(res.dateArrival),
-      dateDeparture: toMexicanDateFormat(res.dateDeparture),
-      arrivalTime: res.arrivalTime || '',
-      departureTime: res.departureTimeHotel || '',
-      origin: res.origin || res.originDeparture || '-',
-      toPayUsd: res.toPayUsd || 0,
-      toPayMxn: res.toPayMxn || 0,
-      depositUsd: res.depositUsd || 0,
-      depositMxn: res.depositMxn || 0,
-      observations: res.observations || '',
-      timestamp: new Date().toISOString()
+    const payload = {
+      code: res.code || res.reservationNo || res.id || '',
+      date: dateFormatted || '',
+      time: timeFormatted || '',
+      serviceType: res.serviceType ? (res.serviceType + (res.transferSubtype ? ` (${res.transferSubtype})` : '')) : '',
+      origin: origin || '',
+      destination: destination || '',
+      pax: paxValue || '',
+      passenger: passengerName || '',
+      flight: flightInfo || '',
+      amount: amountStr || ''
     };
 
     await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
       method: 'POST',
       mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(reservationPayload)
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
     });
 
     return true;
