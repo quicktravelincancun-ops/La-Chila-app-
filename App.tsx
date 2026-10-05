@@ -841,64 +841,21 @@ ${rawText}
               />
             </div>
 
-            <div className="p-4 sm:p-6 bg-white border-t border-gray-100 flex flex-col sm:flex-row gap-3 sm:gap-4 no-print shrink-0">
+            <div className="p-4 sm:p-6 bg-white border-t border-gray-100 flex flex-col sm:flex-row items-center justify-end gap-3 no-print shrink-0">
               <button 
-                onClick={() => {
-                  handleEdit(showVoucherModal.reservation!);
-                  setShowVoucherModal({ show: false, reservation: null });
-                }} 
-                className="py-3.5 sm:py-4 px-5 sm:px-6 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                type="button"
+                onClick={() => setShowVoucherModal({ show: false, reservation: null })} 
+                className="w-full sm:w-auto py-3.5 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-black uppercase text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <i className="fas fa-edit text-sm"></i> EDITAR
-              </button>
-              
-              <button 
-                onClick={handlePrintVoucher} 
-                className="py-3.5 sm:py-4 px-4 sm:px-5 bg-slate-700 hover:bg-slate-800 text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-                title="Imprimir o guardar como PDF"
-              >
-                <i className="fas fa-print text-sm text-emerald-400"></i>
-                <span>IMPRIMIR / PDF</span>
-              </button>
-
-              {showVoucherModal.reservation && (showVoucherModal.reservation.serviceType === "Llegada y Salida" || showVoucherModal.reservation.serviceType === "Solo Llegada") && (
-                <button 
-                  onClick={() => handleSendToDriver('arrival', showVoucherModal.reservation)} 
-                  className="py-3.5 sm:py-4 px-4 sm:px-5 bg-[#25D366] hover:bg-[#1ebd5a] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-                  title="Enviar orden de llegada al chofer por WhatsApp"
-                >
-                  <i className="fab fa-whatsapp text-sm"></i>
-                  <i className="fas fa-plane-arrival text-xs"></i>
-                  <span>ENVIAR LLEGADA A CHOFER</span>
-                </button>
-              )}
-
-              {showVoucherModal.reservation && (showVoucherModal.reservation.serviceType === "Llegada y Salida" || showVoucherModal.reservation.serviceType === "Solo Salida" || showVoucherModal.reservation.serviceType === "Solo Traslado" || showVoucherModal.reservation.serviceType === "Tour o Excursión" || showVoucherModal.reservation.serviceType === "Circuito") && (
-                <button 
-                  onClick={() => handleSendToDriver('departure', showVoucherModal.reservation)} 
-                  className="py-3.5 sm:py-4 px-4 sm:px-5 bg-[#128C7E] hover:bg-[#0e7064] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-                  title="Enviar orden de salida al chofer por WhatsApp"
-                >
-                  <i className="fab fa-whatsapp text-sm"></i>
-                  <i className="fas fa-plane-departure text-xs"></i>
-                  <span>ENVIAR SALIDA A CHOFER</span>
-                </button>
-              )}
-
-              <button 
-                onClick={() => handleSaveToSheets(showVoucherModal.reservation)} 
-                disabled={syncing}
-                className="py-3.5 sm:py-4 px-4 sm:px-5 bg-[#107c41] hover:bg-[#0c6233] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-                title="Guardar directamente en la hoja de Google Sheets vía webhook"
-              >
-                <i className={`fas ${syncing ? 'fa-spinner fa-spin' : 'fa-cloud-upload-alt'}`}></i>
-                <span>GUARDAR EN SHEETS</span>
+                <i className="fas fa-times text-xs text-slate-400"></i>
+                <span>CERRAR</span>
               </button>
 
               <button 
+                type="button"
                 onClick={() => handleShareOrDownload(showVoucherModal.reservation!, 'voucher-modal-print', previewLanguage)} 
                 disabled={isExportingPDF}
-                className="flex-1 py-3.5 sm:py-4 px-5 sm:px-6 bg-[#0a305e] hover:bg-blue-900 text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-2.5 disabled:opacity-50 active:scale-[0.98]"
+                className="w-full sm:w-auto flex-1 py-3.5 px-6 bg-[#0a305e] hover:bg-blue-900 text-white rounded-2xl font-black uppercase text-xs sm:text-sm shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-2.5 disabled:opacity-50 active:scale-[0.98] cursor-pointer"
               >
                 <i className={`fas ${isExportingPDF ? 'fa-spinner fa-spin' : (isWebView ? 'fa-external-link-alt' : 'fa-share-nodes')} text-base text-blue-300`}></i>
                 <span>{isExportingPDF ? 'PREPARANDO VOUCHER...' : 'COMPARTIR / DESCARGAR VOUCHER'}</span>
@@ -1401,78 +1358,78 @@ ${rawText}
                   )}
                 </div>
 
-                <div className="mt-12 pt-8 border-t border-gray-100 flex flex-wrap gap-4">
-                  {editingId ? (
-                    <>
-                      <button 
-                        onClick={() => handleSave(true)} 
-                        className="flex-1 py-5 bg-emerald-600 text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:bg-emerald-700 hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[200px]"
-                      >
-                        <i className="fas fa-file-invoice"></i> Actualizar y Ver Voucher
-                      </button>
-                      <button 
-                        onClick={() => handleSave(false)} 
-                        className="flex-1 py-5 bg-[#0a305e] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all min-w-[160px]"
-                      >
-                        Actualizar Reserva
-                      </button>
-                      <button 
-                        onClick={cancelEdit} 
-                        className="px-6 py-5 bg-gray-100 text-gray-600 rounded-[24px] font-black uppercase text-[11px] hover:bg-gray-200 transition-all"
-                      >
-                        Cancelar
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button 
-                        onClick={() => handleSave(true)} 
-                        className="flex-1 py-5 bg-emerald-600 text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:bg-emerald-700 hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[180px]"
-                      >
-                        <i className="fas fa-file-invoice"></i> Generar Voucher
-                      </button>
-                      <button 
-                        onClick={() => handleSave(false)} 
-                        className="flex-1 py-5 bg-[#0a305e] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[140px]"
-                      >
-                        <i className="fas fa-save"></i> Guardar
-                      </button>
-                    </>
-                  )}
-                  <button 
-                    onClick={() => handleSaveToSheets()} 
-                    disabled={syncing}
-                    className="px-6 py-5 bg-[#107c41] hover:bg-[#0c6233] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[170px]"
-                    title="Guardar directamente en la hoja de Google Sheets vía webhook"
-                  >
-                    <i className={`fas ${syncing ? 'fa-spinner fa-spin' : 'fa-cloud-upload-alt'}`}></i>
-                    <span>{syncing ? 'GUARDANDO...' : 'GUARDAR EN SHEETS'}</span>
-                  </button>
-                  {(formData.serviceType === "Llegada y Salida" || formData.serviceType === "Solo Llegada") && (
+                <div className="mt-12 pt-8 border-t border-gray-100 space-y-4">
+                  {/* Primary Operations: GUARDAR RESERVA, GUARDAR EN SHEETS, GENERAR VOUCHER */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                     <button 
-                      onClick={() => handleSendToDriver('arrival')} 
-                      className="px-6 py-5 bg-[#25D366] hover:bg-[#1ebd5a] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[190px]"
-                      title="Enviar orden de llegada al chofer por WhatsApp con ruta a hotel"
+                      type="button"
+                      onClick={() => handleSave(false)} 
+                      className="py-4 px-5 bg-[#0a305e] hover:bg-[#072142] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-xl hover:scale-[1.01] active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer"
+                      title="Guardar reserva localmente en la aplicación"
                     >
-                      <i className="fab fa-whatsapp text-sm"></i>
-                      <i className="fas fa-plane-arrival text-xs"></i>
+                      <i className="fas fa-save text-blue-300 text-sm"></i>
+                      <span>GUARDAR RESERVA</span>
+                    </button>
+
+                    <button 
+                      type="button"
+                      onClick={() => handleSaveToSheets()} 
+                      disabled={syncing}
+                      className="py-4 px-5 bg-[#107c41] hover:bg-[#0c6233] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-xl hover:scale-[1.01] active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 disabled:opacity-60 cursor-pointer"
+                      title="Guardar y registrar servicio directamente en Google Sheets vía Apps Script"
+                    >
+                      <i className={`fas ${syncing ? 'fa-spinner fa-spin' : 'fa-cloud-upload-alt'} text-green-200 text-sm`}></i>
+                      <span>{syncing ? 'GUARDANDO...' : 'GUARDAR EN SHEETS'}</span>
+                    </button>
+
+                    <button 
+                      type="button"
+                      onClick={() => handleSave(true)} 
+                      className="py-4 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-xl hover:scale-[1.01] active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer"
+                      title="Generar vista previa del voucher de confirmación"
+                    >
+                      <i className="fas fa-file-invoice text-emerald-200 text-sm"></i>
+                      <span>GENERAR VOUCHER</span>
+                    </button>
+                  </div>
+
+                  {/* Driver Communications: ENVIAR LLEGADA A CHOFER, ENVIAR SALIDA A CHOFER */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                    <button 
+                      type="button"
+                      onClick={() => handleSendToDriver('arrival')} 
+                      className="py-4 px-5 bg-[#25D366] hover:bg-[#1ebd5a] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-xl hover:scale-[1.01] active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer"
+                      title="Enviar orden de llegada al chofer por WhatsApp con ruta y enlaces de estatus"
+                    >
+                      <i className="fab fa-whatsapp text-base"></i>
+                      <i className="fas fa-plane-arrival text-xs text-white/90"></i>
                       <span>ENVIAR LLEGADA A CHOFER</span>
                     </button>
-                  )}
-                  {(formData.serviceType === "Llegada y Salida" || formData.serviceType === "Solo Salida" || formData.serviceType === "Solo Traslado" || formData.serviceType === "Tour o Excursión" || formData.serviceType === "Circuito") && (
+
                     <button 
+                      type="button"
                       onClick={() => handleSendToDriver('departure')} 
-                      className="px-6 py-5 bg-[#128C7E] hover:bg-[#0e7064] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2 min-w-[190px]"
-                      title="Enviar orden de salida al chofer por WhatsApp con ruta a aeropuerto"
+                      className="py-4 px-5 bg-[#128C7E] hover:bg-[#0e7064] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-xl hover:scale-[1.01] active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer"
+                      title="Enviar orden de salida al chofer por WhatsApp con ruta y enlaces de estatus"
                     >
-                      <i className="fab fa-whatsapp text-sm"></i>
-                      <i className="fas fa-plane-departure text-xs"></i>
+                      <i className="fab fa-whatsapp text-base"></i>
+                      <i className="fas fa-plane-departure text-xs text-white/90"></i>
                       <span>ENVIAR SALIDA A CHOFER</span>
                     </button>
+                  </div>
+
+                  {editingId && (
+                    <div className="pt-2 flex justify-center">
+                      <button 
+                        type="button"
+                        onClick={cancelEdit} 
+                        className="py-2.5 px-6 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold uppercase text-[11px] transition-all flex items-center gap-2 cursor-pointer"
+                      >
+                        <i className="fas fa-times text-xs"></i>
+                        <span>Cancelar Edición</span>
+                      </button>
+                    </div>
                   )}
-                  <button onClick={handleSyncToSheets} className="px-6 py-5 bg-[#34a853] hover:bg-[#2d9147] text-white rounded-[24px] font-black uppercase text-[11px] shadow-xl flex items-center gap-2" title="Abrir y copiar formato TSV para la hoja">
-                    <i className="fas fa-table"></i> Sheets (TSV)
-                  </button>
                 </div>
               </section>
 
@@ -1484,58 +1441,23 @@ ${rawText}
                     pdfSingleTourIndex={pdfSingleTourIndex}
                     language={previewLanguage}
                   />
-                  <div className="flex justify-center flex-wrap gap-3 sm:gap-4 mt-12 px-4 max-w-2xl mx-auto no-print">
+                  <div className="flex justify-center flex-wrap gap-3 sm:gap-4 mt-8 px-4 max-w-2xl mx-auto no-print">
                     <button 
+                      type="button"
                       onClick={() => handleEdit(currentVoucher)} 
-                      className="bg-amber-500 hover:bg-amber-600 text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[110px] flex items-center justify-center gap-2 active:scale-[0.98]"
+                      className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-4 rounded-2xl font-black uppercase text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <i className="fas fa-edit"></i> EDITAR
+                      <i className="fas fa-edit text-slate-500"></i> EDITAR
                     </button>
+
                     <button 
-                      onClick={handlePrintVoucher} 
-                      className="bg-slate-700 hover:bg-slate-800 text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[130px] flex items-center justify-center gap-2 active:scale-[0.98]"
-                      title="Imprimir o guardar como PDF"
-                    >
-                      <i className="fas fa-print text-emerald-400"></i> IMPRIMIR / PDF
-                    </button>
-                    {(!currentVoucher.serviceType || currentVoucher.serviceType === "Llegada y Salida" || currentVoucher.serviceType === "Solo Llegada") && (
-                      <button 
-                        onClick={() => handleSendToDriver('arrival', currentVoucher)} 
-                        className="bg-[#25D366] hover:bg-[#1ebd5a] text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[180px] flex items-center justify-center gap-2 active:scale-[0.98]"
-                        title="Enviar orden de llegada al chofer por WhatsApp"
-                      >
-                        <i className="fab fa-whatsapp text-sm"></i>
-                        <i className="fas fa-plane-arrival text-xs"></i>
-                        <span>ENVIAR LLEGADA A CHOFER</span>
-                      </button>
-                    )}
-                    {(!currentVoucher.serviceType || currentVoucher.serviceType === "Llegada y Salida" || currentVoucher.serviceType === "Solo Salida" || currentVoucher.serviceType === "Solo Traslado" || currentVoucher.serviceType === "Tour o Excursión" || currentVoucher.serviceType === "Circuito") && (
-                      <button 
-                        onClick={() => handleSendToDriver('departure', currentVoucher)} 
-                        className="bg-[#128C7E] hover:bg-[#0e7064] text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[180px] flex items-center justify-center gap-2 active:scale-[0.98]"
-                        title="Enviar orden de salida al chofer por WhatsApp"
-                      >
-                        <i className="fab fa-whatsapp text-sm"></i>
-                        <i className="fas fa-plane-departure text-xs"></i>
-                        <span>ENVIAR SALIDA A CHOFER</span>
-                      </button>
-                    )}
-                    <button 
-                      onClick={() => handleSaveToSheets(currentVoucher)} 
-                      disabled={syncing}
-                      className="bg-[#107c41] hover:bg-[#0c6233] text-white px-5 sm:px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-lg transition-all min-w-[160px] flex items-center justify-center gap-2 active:scale-[0.98]"
-                      title="Guardar en Google Sheets"
-                    >
-                      <i className={`fas ${syncing ? 'fa-spinner fa-spin' : 'fa-cloud-upload-alt'}`}></i>
-                      <span>GUARDAR EN SHEETS</span>
-                    </button>
-                    <button 
+                      type="button"
                       onClick={() => handleShareOrDownload(currentVoucher, 'voucher-to-print', previewLanguage)} 
                       disabled={isExportingPDF}
-                      className="flex-1 bg-[#0a305e] hover:bg-blue-900 text-white px-6 py-4 rounded-[24px] font-black uppercase text-xs shadow-xl transition-all min-w-[220px] flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+                      className="flex-1 bg-[#0a305e] hover:bg-blue-900 text-white px-6 py-4 rounded-2xl font-black uppercase text-xs shadow-xl hover:shadow-2xl transition-all min-w-[220px] flex items-center justify-center gap-2.5 disabled:opacity-50 active:scale-[0.98] cursor-pointer"
                     >
-                      <i className={`fas ${isExportingPDF ? 'fa-spinner fa-spin' : (isWebView ? 'fa-external-link-alt' : 'fa-share-nodes')}`}></i>
-                      <span>{isExportingPDF ? 'PREPARANDO...' : 'COMPARTIR / DESCARGAR VOUCHER'}</span>
+                      <i className={`fas ${isExportingPDF ? 'fa-spinner fa-spin' : (isWebView ? 'fa-external-link-alt' : 'fa-share-nodes')} text-base text-blue-300`}></i>
+                      <span>{isExportingPDF ? 'PREPARANDO VOUCHER...' : 'COMPARTIR / DESCARGAR VOUCHER'}</span>
                     </button>
                   </div>
                 </div>
@@ -1690,7 +1612,9 @@ const InputGroup: React.FC<{
       onChange?.({ target: { name, value: mex } });
     };
 
-    const openCalendarPicker = () => {
+    const openCalendarPicker = (e?: React.MouseEvent) => {
+      e?.preventDefault();
+      e?.stopPropagation();
       if (dateInputRef.current) {
         try {
           if (typeof (dateInputRef.current as any).showPicker === 'function') {
@@ -1763,8 +1687,7 @@ const InputGroup: React.FC<{
                 name={name}
                 value={isoVal}
                 onChange={handleNativeDateChange}
-                onClick={openCalendarPicker}
-                className={`w-full border-2 border-gray-100 rounded-2xl px-5 py-4 text-sm font-bold text-slate-800 bg-white focus:border-blue-500 outline-none transition-all shadow-sm cursor-pointer ${highlight ? 'text-orange-600 border-orange-50' : ''}`}
+                className={`w-full border-2 border-gray-100 rounded-2xl pl-5 pr-12 py-4 text-sm font-bold text-slate-800 bg-white focus:border-blue-500 outline-none transition-all shadow-sm cursor-pointer ${highlight ? 'text-orange-600 border-orange-50' : ''}`}
               />
               <button
                 type="button"
