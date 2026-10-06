@@ -413,23 +413,19 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
             </div>
           </div>
 
-          {/* Travel Instructions */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-            <h4 className="text-[9px] font-black uppercase text-[#0a305e] mb-2">{t.travelInstructions}</h4>
-            <ul className="space-y-2 text-[8px] font-bold text-slate-600 leading-tight">
-              <li className="flex gap-2">
-                <i className="fas fa-info-circle text-[#0a305e] mt-0.5 shrink-0"></i>
-                <span>{t.instructionArrival}</span>
-              </li>
-              <li className="flex gap-2">
-                <i className="fas fa-clock text-[#0a305e] mt-0.5 shrink-0"></i>
-                <span>{t.instructionPickup}</span>
-              </li>
-              <li className="flex gap-2">
-                <i className="fas fa-user-friends text-[#0a305e] mt-0.5 shrink-0"></i>
-                <span>{t.instructionAssistance}</span>
-              </li>
-            </ul>
+          {/* Travel Agency / Agencia de Viajes */}
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex items-center justify-between">
+            <div>
+              <span className="block text-[7px] text-gray-400 uppercase font-black tracking-widest mb-0.5">
+                {language === 'en' ? 'Travel Agency' : 'Agencia de Viajes'}
+              </span>
+              <span className="text-[11px] font-black text-[#0a305e] uppercase">
+                {reservation.agency || 'Quick Travel Cancún'}
+              </span>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-[#0a305e] flex items-center justify-center text-sm shrink-0">
+              <i className="fas fa-building"></i>
+            </div>
           </div>
 
           {/* General Notes */}

@@ -87,6 +87,7 @@ const App: React.FC = () => {
 
   const initialFormState: Omit<Reservation, 'id' | 'createdAt'> = {
     reservationNo: '',
+    agency: 'Quick Travel Cancún',
     name: '',
     serviceType: 'Llegada y Salida',
     transferSubtype: 'Traslado Sencillo',
@@ -578,7 +579,7 @@ const App: React.FC = () => {
           const ai = new GoogleGenAI({ apiKey });
           const currentDate = new Date().toISOString().split('T')[0];
           const prompt = `Analiza el siguiente texto de reservación para Quick Travel Cancún y devuelve un objeto JSON válido con los campos encontrados:
-passenger, name, serviceType ("Llegada y Salida" | "Solo Llegada" | "Solo Salida" | "Solo Traslado" | "Tour o Excursión" | "Circuito"), transferSubtype, tourName, tourType, date (DD/MM/YYYY), dateArrival (DD/MM/YYYY), dateDeparture (DD/MM/YYYY), arrivalTime (HH:MM), departureTimeHotel (HH:MM), departureTimeFlight (HH:MM), flight, flightNoArrival, airlineArrival, origin, destination, arrivalDestination, originDeparture, departureDestination, pax (number), peopleCount (number), amount, depositMxn (number), toPayMxn (number), depositUsd (number), toPayUsd (number), roomNumber, observations.
+passenger, name, agency, serviceType ("Llegada y Salida" | "Solo Llegada" | "Solo Salida" | "Solo Traslado" | "Tour o Excursión" | "Circuito"), transferSubtype, tourName, tourType, date (DD/MM/YYYY), dateArrival (DD/MM/YYYY), dateDeparture (DD/MM/YYYY), arrivalTime (HH:MM), departureTimeHotel (HH:MM), departureTimeFlight (HH:MM), flight, flightNoArrival, airlineArrival, origin, destination, arrivalDestination, originDeparture, departureDestination, pax (number), peopleCount (number), amount, depositMxn (number), toPayMxn (number), depositUsd (number), toPayUsd (number), roomNumber, observations.
 Fecha actual de referencia: ${currentDate}. Todas las fechas en formato DD/MM/YYYY.
 
 Texto:
@@ -1055,7 +1056,7 @@ ${rawText}
                 onClick={() => {
                   const statusLabel = driverStatusView.step === 'onboard' ? 'Cliente a bordo (En camino)' : 'Servicio finalizado con éxito';
                   const message = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n\n📋 *Orden:* ${driverStatusView.code}\n📍 *Estatus:* ${statusLabel}\n⏰ *Hora:* ${driverStatusView.timestamp} hrs`;
-                  const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+                  const url = `https://api.whatsapp.com/send?phone=529982127348&text=${encodeURIComponent(message)}`;
                   window.open(url, '_blank');
                 }}
                 className="w-full py-4 bg-[#25D366] hover:bg-[#1ebd5a] text-white rounded-2xl font-black uppercase text-xs shadow-lg transition-all flex items-center justify-center gap-2"
@@ -1442,6 +1443,14 @@ ${rawText}
                       value={formData.serviceType} 
                       onChange={handleInputChange} 
                       options={["Llegada y Salida", "Solo Llegada", "Solo Salida", "Solo Traslado", "Tour o Excursión", "Circuito"]} 
+                    />
+
+                    <InputGroup 
+                      label="Agencia de Viajes" 
+                      name="agency" 
+                      value={formData.agency || 'Quick Travel Cancún'} 
+                      onChange={handleInputChange} 
+                      placeholder="Quick Travel Cancún"
                     />
 
                     <InputGroup 
@@ -2002,6 +2011,10 @@ ${rawText}
                                     </span>
                                     <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[10px] font-black uppercase tracking-wider">
                                       {res.serviceType}
+                                    </span>
+                                    <span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center">
+                                      <i className="fas fa-building text-[9px] mr-1 opacity-70"></i>
+                                      {res.agency || 'Quick Travel Cancún'}
                                     </span>
                                   </div>
 

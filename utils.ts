@@ -195,7 +195,7 @@ function doPost(e) {
     // Buscar si el folio y tipo de servicio ya existen en la hoja para REESCRIBIR
     if (lastRow > 1 && codeToFind) {
       var numRows = lastRow - 1;
-      var numCols = Math.max(sheet.getLastColumn(), 10);
+      var numCols = Math.max(sheet.getLastColumn(), 11);
       var values = sheet.getRange(2, 1, numRows, numCols).getValues();
       
       for (var i = 0; i < values.length; i++) {
@@ -212,7 +212,7 @@ function doPost(e) {
       }
     }
     
-    // Columnas: Folio | Fecha | Hora | Servicio | Origen | Destino | Pax | Pasajero | Vuelo | Monto
+    // Columnas: Folio | Fecha | Hora | Servicio | Origen | Destino | Pax | Pasajero | Vuelo | Monto | Agencia
     var rowData = [
       data.code || "",
       data.date || "",
@@ -223,7 +223,8 @@ function doPost(e) {
       data.pax || "",
       data.passenger || "",
       data.flight || "",
-      data.amount || ""
+      data.amount || "",
+      data.agency || "Quick Travel Cancún"
     ];
     
     if (rowToUpdate > 0) {
@@ -254,6 +255,7 @@ export interface SheetsRowData {
   passenger: string;
   flight: string;
   amount: string;
+  agency?: string;
 }
 
 export function getReservationBalanceString(res: Reservation | any): string {
@@ -313,6 +315,7 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
 
   const baseCode = String(res.code || res.reservationNo || res.id || '');
   const rawService = String(res.serviceType || '').trim();
+  const agencyName = (res.agency && String(res.agency).trim()) ? String(res.agency).trim() : 'Quick Travel Cancún';
 
   // Robust Round-Trip detection (Llegada y Salida / Viaje Redondo)
   const isRoundTrip = 
@@ -348,7 +351,8 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
       pax: arrivalPax,
       passenger: arrivalPassenger,
       flight: arrivalFlight,
-      amount: balanceStr
+      amount: balanceStr,
+      agency: agencyName
     };
 
     // 2. Departure Leg (Salida) - Service must ONLY be 'Salida'
@@ -372,7 +376,8 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
       pax: departurePax,
       passenger: departurePassenger,
       flight: departureFlight,
-      amount: hasPendingBalance ? '$0 (Cobrado en Llegada)' : '$0'
+      amount: hasPendingBalance ? '$0 (Cobrado en Llegada)' : '$0',
+      agency: agencyName
     };
 
     return [arrivalRow, departureRow];
@@ -421,7 +426,8 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
     pax: paxValue || '',
     passenger: passengerName || '',
     flight: flightInfo || '',
-    amount: balanceStr
+    amount: balanceStr,
+    agency: agencyName
   };
 
   return [singleRow];
@@ -430,7 +436,7 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
 /**
  * Formats reservation data into clean Tab-Separated Values (TSV):
  * When Round Trip: Outputs BOTH rows (Llegada and Salida) separated by \n
- * Order: Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount
+ * Order: Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount \t Agency
  */
 export function formatReservationToTSV(res: Reservation | any): string {
   const rows = getReservationRows(res);
@@ -444,7 +450,8 @@ export function formatReservationToTSV(res: Reservation | any): string {
     r.pax,
     r.passenger,
     r.flight,
-    r.amount
+    r.amount,
+    r.agency || res.agency || 'Quick Travel Cancún'
   ].join('\t')).join('\n');
 }
 
@@ -532,7 +539,8 @@ export async function sendReservationToGoogleSheets(
         pax: row.pax,
         passenger: row.passenger,
         flight: row.flight,
-        amount: row.amount
+        amount: row.amount,
+        agency: row.agency || res.agency || 'Quick Travel Cancún'
       };
 
       console.log(`[GoogleSheets Webhook] POSTing row ${i + 1}/${rows.length} (${row.serviceType}, isEdit=${isEdit}):`, payload);
@@ -648,9 +656,15 @@ export function generateDriverArrivalWhatsAppMessage(res: Reservation): string {
   msg += `🏁 Destino: ${destination}\n`;
   msg += `👥 Pasajeros: ${pax} PAX\n`;
   msg += `💰 COBRO AL CLIENTE: ${amountStr}\n\n`;
+  const dispatchPhone = '529982127348';
+  const onboardArrivalText = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n📋 *Orden:* ${code}-L\n👤 *Pasajero:* ${passenger}\n🟢 *Estatus:* CLIENTE A BORDO (En camino)`;
+  const completedArrivalText = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n📋 *Orden:* ${code}-L\n👤 *Pasajero:* ${passenger}\n✅ *Estatus:* SERVICIO FINALIZADO`;
+  const onboardArrivalLink = `https://api.whatsapp.com/send?phone=${dispatchPhone}&text=${encodeURIComponent(onboardArrivalText)}`;
+  const completedArrivalLink = `https://api.whatsapp.com/send?phone=${dispatchPhone}&text=${encodeURIComponent(completedArrivalText)}`;
+
   msg += `🔗 ESTATUS DEL SERVICIO:\n`;
-  msg += `1️⃣ Cliente a bordo: https://app.quicktravelcancun.com/status/${code}-L?step=onboard\n`;
-  msg += `2️⃣ Servicio Finalizado: https://app.quicktravelcancun.com/status/${code}-L?step=completed`;
+  msg += `1️⃣ Cliente a bordo: ${onboardArrivalLink}\n`;
+  msg += `2️⃣ Servicio Finalizado: ${completedArrivalLink}`;
 
   // Include Google Maps link from Cancun Airport to Destination if destination is explicit
   if (isSpecificLocation(destination)) {
@@ -709,9 +723,15 @@ export function generateDriverDepartureWhatsAppMessage(res: Reservation): string
   msg += `🏁 Destino: ${destination}\n`;
   msg += `👥 Pasajeros: ${pax} PAX\n`;
   msg += `💰 COBRO AL CLIENTE: ${amountStr}\n\n`;
+  const dispatchPhone = '529982127348';
+  const onboardDepartureText = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n📋 *Orden:* ${code}-S\n👤 *Pasajero:* ${passenger}\n🟢 *Estatus:* CLIENTE A BORDO (En camino)`;
+  const completedDepartureText = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n📋 *Orden:* ${code}-S\n👤 *Pasajero:* ${passenger}\n✅ *Estatus:* SERVICIO FINALIZADO`;
+  const onboardDepartureLink = `https://api.whatsapp.com/send?phone=${dispatchPhone}&text=${encodeURIComponent(onboardDepartureText)}`;
+  const completedDepartureLink = `https://api.whatsapp.com/send?phone=${dispatchPhone}&text=${encodeURIComponent(completedDepartureText)}`;
+
   msg += `🔗 ESTATUS DEL SERVICIO:\n`;
-  msg += `1️⃣ Cliente a bordo: https://app.quicktravelcancun.com/status/${code}-S?step=onboard\n`;
-  msg += `2️⃣ Servicio Finalizado: https://app.quicktravelcancun.com/status/${code}-S?step=completed`;
+  msg += `1️⃣ Cliente a bordo: ${onboardDepartureLink}\n`;
+  msg += `2️⃣ Servicio Finalizado: ${completedDepartureLink}`;
 
   // Include Google Maps link from Hotel/Origin to Cancun Airport if origin is explicit
   if (isSpecificLocation(origin)) {
