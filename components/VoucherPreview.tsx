@@ -413,21 +413,6 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
             </div>
           </div>
 
-          {/* Travel Agency / Agencia de Viajes */}
-          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex items-center justify-between">
-            <div>
-              <span className="block text-[7px] text-gray-400 uppercase font-black tracking-widest mb-0.5">
-                {language === 'en' ? 'Travel Agency' : 'Agencia de Viajes'}
-              </span>
-              <span className="text-[11px] font-black text-[#0a305e] uppercase">
-                {reservation.agency || 'Quick Travel Cancún'}
-              </span>
-            </div>
-            <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-[#0a305e] flex items-center justify-center text-sm shrink-0">
-              <i className="fas fa-building"></i>
-            </div>
-          </div>
-
           {/* General Notes */}
           {reservation.observations && (
             <div className="bg-yellow-50/50 p-3 rounded-xl border border-yellow-100">

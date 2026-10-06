@@ -195,7 +195,7 @@ function doPost(e) {
     // Buscar si el folio y tipo de servicio ya existen en la hoja para REESCRIBIR
     if (lastRow > 1 && codeToFind) {
       var numRows = lastRow - 1;
-      var numCols = Math.max(sheet.getLastColumn(), 11);
+      var numCols = Math.max(sheet.getLastColumn(), 12);
       var values = sheet.getRange(2, 1, numRows, numCols).getValues();
       
       for (var i = 0; i < values.length; i++) {
@@ -212,7 +212,11 @@ function doPost(e) {
       }
     }
     
-    // Columnas: Folio | Fecha | Hora | Servicio | Origen | Destino | Pax | Pasajero | Vuelo | Monto | Agencia
+    var companyValue = String(data.company || data.agency || "Quick Travel").trim();
+    var driverValue = String(data.driver || "").trim();
+
+    // Columnas exactas de la hoja:
+    // A: Folio | B: Fecha | C: Hora | D: Servicio | E: Origen | F: Destino | G: Pax | H: Nombre | I: Vuelo/Habita | J: Balance | K: Chofer | L: Compañía
     var rowData = [
       data.code || "",
       data.date || "",
@@ -224,10 +228,15 @@ function doPost(e) {
       data.passenger || "",
       data.flight || "",
       data.amount || "",
-      data.agency || "Quick Travel Cancún"
+      driverValue,
+      companyValue
     ];
     
     if (rowToUpdate > 0) {
+      // Si la fila existente ya tenía chofer asignado en la Columna K (índice 10), preservarlo
+      if (!driverValue && values[rowToUpdate - 2] && values[rowToUpdate - 2][10]) {
+        rowData[10] = values[rowToUpdate - 2][10];
+      }
       // REESCRIBIR / SOBREESCRIBIR la fila existente
       sheet.getRange(rowToUpdate, 1, 1, rowData.length).setValues([rowData]);
       return ContentService.createTextOutput(JSON.stringify({ status: "success", action: "rewritten", row: rowToUpdate }))
@@ -255,6 +264,8 @@ export interface SheetsRowData {
   passenger: string;
   flight: string;
   amount: string;
+  driver?: string;
+  company?: string;
   agency?: string;
 }
 
@@ -315,7 +326,9 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
 
   const baseCode = String(res.code || res.reservationNo || res.id || '');
   const rawService = String(res.serviceType || '').trim();
-  const agencyName = (res.agency && String(res.agency).trim()) ? String(res.agency).trim() : 'Quick Travel Cancún';
+  const companyName = (res.company && String(res.company).trim())
+    ? String(res.company).trim()
+    : ((res.agency && String(res.agency).trim()) ? String(res.agency).trim() : 'Quick Travel Cancún');
 
   // Robust Round-Trip detection (Llegada y Salida / Viaje Redondo)
   const isRoundTrip = 
@@ -352,7 +365,8 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
       passenger: arrivalPassenger,
       flight: arrivalFlight,
       amount: balanceStr,
-      agency: agencyName
+      company: companyName,
+      agency: companyName
     };
 
     // 2. Departure Leg (Salida) - Service must ONLY be 'Salida'
@@ -377,7 +391,8 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
       passenger: departurePassenger,
       flight: departureFlight,
       amount: hasPendingBalance ? '$0 (Cobrado en Llegada)' : '$0',
-      agency: agencyName
+      company: companyName,
+      agency: companyName
     };
 
     return [arrivalRow, departureRow];
@@ -427,7 +442,8 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
     passenger: passengerName || '',
     flight: flightInfo || '',
     amount: balanceStr,
-    agency: agencyName
+    company: companyName,
+    agency: companyName
   };
 
   return [singleRow];
@@ -436,7 +452,7 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
 /**
  * Formats reservation data into clean Tab-Separated Values (TSV):
  * When Round Trip: Outputs BOTH rows (Llegada and Salida) separated by \n
- * Order: Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount \t Agency
+ * Order: Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount \t Compañía
  */
 export function formatReservationToTSV(res: Reservation | any): string {
   const rows = getReservationRows(res);
@@ -451,7 +467,7 @@ export function formatReservationToTSV(res: Reservation | any): string {
     r.passenger,
     r.flight,
     r.amount,
-    r.agency || res.agency || 'Quick Travel Cancún'
+    r.company || r.agency || res.company || res.agency || 'Quick Travel Cancún'
   ].join('\t')).join('\n');
 }
 
@@ -540,7 +556,8 @@ export async function sendReservationToGoogleSheets(
         passenger: row.passenger,
         flight: row.flight,
         amount: row.amount,
-        agency: row.agency || res.agency || 'Quick Travel Cancún'
+        company: row.company || res.company || row.agency || res.agency || 'Quick Travel Cancún',
+        agency: row.company || res.company || row.agency || res.agency || 'Quick Travel Cancún'
       };
 
       console.log(`[GoogleSheets Webhook] POSTing row ${i + 1}/${rows.length} (${row.serviceType}, isEdit=${isEdit}):`, payload);
@@ -566,17 +583,58 @@ export async function sendReservationToGoogleSheets(
   }
 }
 
+/**
+ * Opens WhatsApp directly into the native mobile app on Android/iOS,
+ * completely avoiding the intermediary api.whatsapp.com browser web page
+ * (which displays the white WhatsApp logo and "Compartir en WhatsApp API").
+ */
+export const openWhatsAppDirectly = (message: string, phone?: string) => {
+  const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
+  const encodedText = encodeURIComponent(message);
+
+  // Native custom scheme for mobile (bypasses browser intermediary pages)
+  const nativeUrl = cleanPhone
+    ? `whatsapp://send?phone=${cleanPhone}&text=${encodedText}`
+    : `whatsapp://send?text=${encodedText}`;
+
+  // Universal wa.me clean link (fallback)
+  const universalUrl = cleanPhone
+    ? `https://wa.me/${cleanPhone}?text=${encodedText}`
+    : `https://wa.me/?text=${encodedText}`;
+
+  const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+  if (isMobile) {
+    // Navigating directly to whatsapp:// immediately opens WhatsApp app on Android & iOS
+    window.location.href = nativeUrl;
+    return;
+  }
+
+  // Desktop: open universal wa.me link in new tab or try protocol
+  try {
+    const newWin = window.open(universalUrl, '_blank', 'noopener,noreferrer');
+    if (!newWin) {
+      window.location.href = nativeUrl;
+    }
+  } catch (e) {
+    window.location.href = nativeUrl;
+  }
+};
+
 export const getWhatsAppLink = (number: string, message: string) => {
   const numberClean = number.replace(/\D/g, '');
-  return `https://wa.me/${numberClean}?text=${encodeURIComponent(message)}`;
+  if (numberClean) {
+    return `https://wa.me/${numberClean}?text=${encodeURIComponent(message)}`;
+  }
+  return `https://wa.me/?text=${encodeURIComponent(message)}`;
 };
 
 export const getWhatsAppApiSendLink = (message: string, number?: string) => {
   if (number) {
     const cleanNum = number.replace(/\D/g, '');
-    return `https://api.whatsapp.com/send?phone=${cleanNum}&text=${encodeURIComponent(message)}`;
+    return `https://wa.me/${cleanNum}?text=${encodeURIComponent(message)}`;
   }
-  return `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+  return `https://wa.me/?text=${encodeURIComponent(message)}`;
 };
 
 export const getGoogleMapsLink = (query: string) => {
@@ -659,8 +717,8 @@ export function generateDriverArrivalWhatsAppMessage(res: Reservation): string {
   const dispatchPhone = '529982127348';
   const onboardArrivalText = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n📋 *Orden:* ${code}-L\n👤 *Pasajero:* ${passenger}\n🟢 *Estatus:* CLIENTE A BORDO (En camino)`;
   const completedArrivalText = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n📋 *Orden:* ${code}-L\n👤 *Pasajero:* ${passenger}\n✅ *Estatus:* SERVICIO FINALIZADO`;
-  const onboardArrivalLink = `https://api.whatsapp.com/send?phone=${dispatchPhone}&text=${encodeURIComponent(onboardArrivalText)}`;
-  const completedArrivalLink = `https://api.whatsapp.com/send?phone=${dispatchPhone}&text=${encodeURIComponent(completedArrivalText)}`;
+  const onboardArrivalLink = `https://wa.me/${dispatchPhone}?text=${encodeURIComponent(onboardArrivalText)}`;
+  const completedArrivalLink = `https://wa.me/${dispatchPhone}?text=${encodeURIComponent(completedArrivalText)}`;
 
   msg += `🔗 ESTATUS DEL SERVICIO:\n`;
   msg += `1️⃣ Cliente a bordo: ${onboardArrivalLink}\n`;
@@ -726,8 +784,8 @@ export function generateDriverDepartureWhatsAppMessage(res: Reservation): string
   const dispatchPhone = '529982127348';
   const onboardDepartureText = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n📋 *Orden:* ${code}-S\n👤 *Pasajero:* ${passenger}\n🟢 *Estatus:* CLIENTE A BORDO (En camino)`;
   const completedDepartureText = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n📋 *Orden:* ${code}-S\n👤 *Pasajero:* ${passenger}\n✅ *Estatus:* SERVICIO FINALIZADO`;
-  const onboardDepartureLink = `https://api.whatsapp.com/send?phone=${dispatchPhone}&text=${encodeURIComponent(onboardDepartureText)}`;
-  const completedDepartureLink = `https://api.whatsapp.com/send?phone=${dispatchPhone}&text=${encodeURIComponent(completedDepartureText)}`;
+  const onboardDepartureLink = `https://wa.me/${dispatchPhone}?text=${encodeURIComponent(onboardDepartureText)}`;
+  const completedDepartureLink = `https://wa.me/${dispatchPhone}?text=${encodeURIComponent(completedDepartureText)}`;
 
   msg += `🔗 ESTATUS DEL SERVICIO:\n`;
   msg += `1️⃣ Cliente a bordo: ${onboardDepartureLink}\n`;

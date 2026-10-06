@@ -33,7 +33,8 @@ export interface CircuitoLeg {
 export interface Reservation {
   id: string;
   reservationNo: string;
-  agency?: string; // Agencia de viajes (default: Quick Travel Cancún)
+  company?: string; // Nombre de la compañía (default: Quick Travel)
+  agency?: string; // Alias de retrocompatibilidad
   name: string; // Titular / Lead Name
   serviceType: string; // Type of service (Arrival, Departure, etc.)
   transferSubtype?: string; // Sencillo, Redondo, Múltiple
