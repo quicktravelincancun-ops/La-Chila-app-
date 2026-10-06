@@ -160,6 +160,94 @@ export function formatDateForLanguage(dateStr: string | null | undefined, lang: 
 export const GOOGLE_SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxjCU_mXf5cF_jdFFOzXhRnE10h45onjqt8-0u6fpwCtNGlDatWhWWLWpLOTX9JjA1r/exec';
 
 /**
+ * Formats reservation data into clean Tab-Separated Values (TSV) row:
+ * Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount
+ */
+export function formatReservationToTSV(res: Reservation | any): string {
+  const flightInfo = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ').trim() ||
+    (res.departureTimeFlight ? `Vuelo ${res.departureTimeFlight}` : '') ||
+    (res.flight || '');
+
+  const origin = res.origin || res.originDeparture || (res.serviceType === "Llegada y Salida" || res.serviceType === "Solo Llegada" ? 'Aeropuerto de Cancún' : '');
+  const destination = res.destination || res.arrivalDestination || res.departureDestination || '';
+
+  const dateFormatted = toMexicanDateFormat(res.dateArrival || res.dateDeparture || res.date) || res.date || '';
+  const timeFormatted = res.time || res.arrivalTime || res.departureTimeHotel || '';
+  const passengerName = res.passenger || res.name || res.arrivalName || res.departureName || '';
+  const paxValue = res.pax !== undefined && res.pax !== null && res.pax !== ''
+    ? String(res.pax)
+    : (res.peopleCount ? String(res.peopleCount) : (res.peopleCountArrival ? String(res.peopleCountArrival) : (res.peopleCountDeparture ? String(res.peopleCountDeparture) : '')));
+
+  let amountStr = res.amount || '';
+  if (!amountStr) {
+    if (res.toPayUsd > 0) {
+      amountStr = `$${res.toPayUsd} USD`;
+    } else if (res.toPayMxn > 0) {
+      amountStr = `$${res.toPayMxn} MXN`;
+    } else if (res.depositUsd > 0) {
+      amountStr = `Pagado ($${res.depositUsd} USD)`;
+    } else if (res.depositMxn > 0) {
+      amountStr = `Pagado ($${res.depositMxn} MXN)`;
+    }
+  }
+
+  const code = res.code || res.reservationNo || res.id || '';
+  const service = res.serviceType ? (res.serviceType + (res.transferSubtype ? ` (${res.transferSubtype})` : '')) : '';
+
+  // Standard row format: Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount
+  return [
+    code,
+    dateFormatted,
+    timeFormatted,
+    service,
+    origin,
+    destination,
+    paxValue,
+    passengerName,
+    flightInfo,
+    amountStr
+  ].join('\t');
+}
+
+/**
+ * Copies text to system clipboard with fallback support for all browser environments
+ */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      console.warn('navigator.clipboard.writeText failed, using fallback:', e);
+    }
+  }
+
+  try {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.top = '0';
+    textArea.style.left = '0';
+    textArea.style.width = '2em';
+    textArea.style.height = '2em';
+    textArea.style.padding = '0';
+    textArea.style.border = 'none';
+    textArea.style.outline = 'none';
+    textArea.style.boxShadow = 'none';
+    textArea.style.background = 'transparent';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    const successful = document.execCommand('copy');
+    document.body.removeChild(textArea);
+    return successful;
+  } catch (err) {
+    console.error('Fallback clipboard copy error:', err);
+    return false;
+  }
+}
+
+/**
  * Sends reservation payload to Google Sheets webhook in background (POST request).
  * Uses text/plain;charset=utf-8 and no-cors to prevent browser CORS preflight blocking with Google Apps Script.
  */
@@ -169,7 +257,7 @@ export async function sendReservationToGoogleSheets(res: Reservation | any): Pro
       (res.departureTimeFlight ? `Vuelo ${res.departureTimeFlight}` : '') ||
       (res.flight || '');
 
-    const origin = res.origin || res.originDeparture || '';
+    const origin = res.origin || res.originDeparture || (res.serviceType === "Llegada y Salida" || res.serviceType === "Solo Llegada" ? 'Aeropuerto de Cancún' : '');
     const destination = res.destination || res.arrivalDestination || res.departureDestination || '';
 
     const dateFormatted = toMexicanDateFormat(res.dateArrival || res.dateDeparture || res.date) || res.date || '';
@@ -192,35 +280,26 @@ export async function sendReservationToGoogleSheets(res: Reservation | any): Pro
       }
     }
 
-    const reservation = {
-      code: res.code || res.reservationNo || res.id || '',
-      date: dateFormatted || '',
-      time: timeFormatted || '',
-      serviceType: res.serviceType ? (res.serviceType + (res.transferSubtype ? ` (${res.transferSubtype})` : '')) : '',
-      origin: origin || '',
-      destination: destination || '',
-      pax: paxValue || '',
-      passenger: passengerName || '',
-      flight: flightInfo || '',
-      amount: amountStr || ''
+    const payload = {
+      code: String(res.code || res.reservationNo || res.id || ''),
+      date: String(dateFormatted || ''),
+      time: String(timeFormatted || ''),
+      serviceType: String(res.serviceType ? (res.serviceType + (res.transferSubtype ? ` (${res.transferSubtype})` : '')) : ''),
+      origin: String(origin || ''),
+      destination: String(destination || ''),
+      pax: String(paxValue || ''),
+      passenger: String(passengerName || ''),
+      flight: String(flightInfo || ''),
+      amount: String(amountStr || '')
     };
+
+    console.log('[GoogleSheets Webhook] POSTing clean JSON payload:', payload);
 
     await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
       method: 'POST',
       mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
-        code: reservation.code || '',
-        date: reservation.date || '',
-        time: reservation.time || '',
-        serviceType: reservation.serviceType || '',
-        origin: reservation.origin || '',
-        destination: reservation.destination || '',
-        pax: reservation.pax || '',
-        passenger: reservation.passenger || '',
-        flight: reservation.flight || '',
-        amount: reservation.amount || ''
-      })
+      body: JSON.stringify(payload)
     });
 
     return true;

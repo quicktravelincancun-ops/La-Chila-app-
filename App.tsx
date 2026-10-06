@@ -17,13 +17,15 @@ import {
   toMexicanDateFormat,
   toISOFormat,
   formatDateToSpanishLong,
-  sendReservationToGoogleSheets
+  sendReservationToGoogleSheets,
+  formatReservationToTSV,
+  copyTextToClipboard
 } from './utils';
 import { GoogleGenAI } from '@google/genai';
 import { extractReservationFieldsWithRegex, normalizeReservationData, getClientGeminiApiKey } from './geminiService';
 import VoucherPreview from './components/VoucherPreview';
 
-const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit?gid=0#gid=0";
+const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit";
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'create' | 'history'>('create');
@@ -790,36 +792,59 @@ ${rawText}
   };
 
   const handleManualBackup = async () => {
-    const resToBackup = (currentVoucher && currentVoucher.name) ? currentVoucher : {
+    let resolvedName = formData.name;
+    let resolvedPeopleCount = formData.peopleCount;
+
+    if (formData.serviceType === "Llegada y Salida") {
+      resolvedName = formData.arrivalName || formData.departureName || formData.name || '';
+      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCountDeparture || formData.peopleCount || 0;
+    } else if (formData.serviceType === "Solo Llegada") {
+      resolvedName = formData.arrivalName || formData.name || '';
+      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCount || 0;
+    } else {
+      resolvedName = formData.departureName || formData.name || '';
+      resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 0;
+    }
+
+    const currentFormDataRes: Reservation = {
       ...formData,
       id: editingId ? String(editingId) : (formData.reservationNo || generateNewId()),
+      name: resolvedName,
+      peopleCount: resolvedPeopleCount,
       createdAt: new Date().toISOString()
     } as Reservation;
 
-    setSyncing(true);
-    let ok = false;
-    try {
-      ok = await sendReservationToGoogleSheets(resToBackup);
-    } catch {
-      ok = false;
-    }
+    const resToBackup = (currentVoucher && currentVoucher.name) ? currentVoucher : currentFormDataRes;
 
-    if (ok) {
-      setSheetsFeedback({
-        show: true,
-        type: 'success',
-        message: '✓ Guardado con éxito en Google Sheets (Respaldo Manual)'
-      });
-      showUIMessage("✓ Guardado con éxito en Google Sheets");
-    } else {
-      await handleSyncToSheets();
-      setSheetsFeedback({
-        show: true,
-        type: 'error',
-        message: '⚠️ Error de conexión con Sheets. Se copió formato al portapapeles para pegar en la hoja.'
-      });
-    }
-    setSyncing(false);
+    setSyncing(true);
+
+    // a) Format current reservation data as TSV: Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount
+    const tsvRow = formatReservationToTSV(resToBackup);
+
+    // b) Copy that formatted row text to user's Clipboard automatically
+    await copyTextToClipboard(tsvRow);
+
+    // c) Show alert: "✓ Datos copiados al portapapeles. Abriendo Google Sheets para pegar."
+    const alertMsg = "✓ Datos copiados al portapapeles. Abriendo Google Sheets para pegar.";
+    showUIMessage(alertMsg);
+    setSheetsFeedback({
+      show: true,
+      type: 'success',
+      message: alertMsg
+    });
+
+    // Also trigger background POST to Google Apps Script
+    sendReservationToGoogleSheets(resToBackup).catch(err => console.warn(err));
+
+    // d) Open Google Sheets URL in a new tab: https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit
+    setTimeout(() => {
+      setSyncing(false);
+      if (isAndroidWebView()) {
+        openInSystemBrowser(GOOGLE_SHEET_URL);
+      } else {
+        window.open(GOOGLE_SHEET_URL, '_blank', 'noopener,noreferrer');
+      }
+    }, 350);
   };
 
   const handleSendToDriver = (legType: 'arrival' | 'departure', targetRes?: Reservation | null) => {
