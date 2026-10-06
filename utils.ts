@@ -159,25 +159,25 @@ export function formatDateForLanguage(dateStr: string | null | undefined, lang: 
  */
 export const GOOGLE_SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxjCU_mXf5cF_jdFFOzXhRnE10h45onjqt8-0u6fpwCtNGlDatWhWWLWpLOTX9JjA1r/exec';
 
+export interface SheetsRowData {
+  code: string;
+  date: string;
+  time: string;
+  serviceType: string;
+  origin: string;
+  destination: string;
+  pax: string;
+  passenger: string;
+  flight: string;
+  amount: string;
+}
+
 /**
- * Formats reservation data into clean Tab-Separated Values (TSV) row:
- * Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount
+ * Extracts and constructs either 1 or 2 rows (for Round Trips / Llegada y Salida):
+ * Row 1: Llegada
+ * Row 2: Salida
  */
-export function formatReservationToTSV(res: Reservation | any): string {
-  const flightInfo = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ').trim() ||
-    (res.departureTimeFlight ? `Vuelo ${res.departureTimeFlight}` : '') ||
-    (res.flight || '');
-
-  const origin = res.origin || res.originDeparture || (res.serviceType === "Llegada y Salida" || res.serviceType === "Solo Llegada" ? 'Aeropuerto de Cancún' : '');
-  const destination = res.destination || res.arrivalDestination || res.departureDestination || '';
-
-  const dateFormatted = toMexicanDateFormat(res.dateArrival || res.dateDeparture || res.date) || res.date || '';
-  const timeFormatted = res.time || res.arrivalTime || res.departureTimeHotel || '';
-  const passengerName = res.passenger || res.name || res.arrivalName || res.departureName || '';
-  const paxValue = res.pax !== undefined && res.pax !== null && res.pax !== ''
-    ? String(res.pax)
-    : (res.peopleCount ? String(res.peopleCount) : (res.peopleCountArrival ? String(res.peopleCountArrival) : (res.peopleCountDeparture ? String(res.peopleCountDeparture) : '')));
-
+export function getReservationRows(res: Reservation | any): SheetsRowData[] {
   let amountStr = res.amount || '';
   if (!amountStr) {
     if (res.toPayUsd > 0) {
@@ -191,22 +191,116 @@ export function formatReservationToTSV(res: Reservation | any): string {
     }
   }
 
-  const code = res.code || res.reservationNo || res.id || '';
-  const service = res.serviceType ? (res.serviceType + (res.transferSubtype ? ` (${res.transferSubtype})` : '')) : '';
+  const baseCode = String(res.code || res.reservationNo || res.id || '');
+  const isRoundTrip = res.serviceType === "Llegada y Salida" || 
+    (res.dateArrival && res.dateDeparture && (res.arrivalTime || res.departureTimeHotel));
 
-  // Standard row format: Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount
-  return [
-    code,
-    dateFormatted,
-    timeFormatted,
-    service,
-    origin,
-    destination,
-    paxValue,
-    passengerName,
-    flightInfo,
-    amountStr
-  ].join('\t');
+  if (isRoundTrip) {
+    // 1. Arrival Leg (Llegada)
+    const arrivalFlight = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ').trim() || res.flight || '';
+    const arrivalOrigin = res.origin || 'Aeropuerto de Cancún';
+    const arrivalDest = res.arrivalDestination || res.destination || '';
+    const arrivalDate = toMexicanDateFormat(res.dateArrival || res.date) || '';
+    const arrivalTime = res.arrivalTime || res.time || '';
+    const arrivalPassenger = res.arrivalName || res.name || res.passenger || '';
+    const arrivalPax = String(res.peopleCountArrival || res.peopleCount || res.pax || '1');
+
+    const arrivalRow: SheetsRowData = {
+      code: baseCode,
+      date: arrivalDate,
+      time: arrivalTime,
+      serviceType: 'Llegada',
+      origin: arrivalOrigin,
+      destination: arrivalDest,
+      pax: arrivalPax,
+      passenger: arrivalPassenger,
+      flight: arrivalFlight,
+      amount: amountStr || '$0'
+    };
+
+    // 2. Departure Leg (Salida)
+    const departureFlight = res.departureTimeFlight 
+      ? (res.departureTimeFlight.toLowerCase().includes('vuelo') ? res.departureTimeFlight : `Vuelo ${res.departureTimeFlight}`) 
+      : (res.flight || '');
+    const departureOrigin = res.originDeparture || res.arrivalDestination || res.destination || '';
+    const departureDest = res.departureDestination || 'Aeropuerto de Cancún';
+    const departureDate = toMexicanDateFormat(res.dateDeparture || res.date) || '';
+    const departureTime = res.departureTimeHotel || (res.departureTimeFlight ? `Pickup: ${res.departureTimeFlight}` : '') || '';
+    const departurePassenger = res.departureName || res.name || res.passenger || '';
+    const departurePax = String(res.peopleCountDeparture || res.peopleCount || res.pax || '1');
+
+    const departureRow: SheetsRowData = {
+      code: baseCode,
+      date: departureDate,
+      time: departureTime,
+      serviceType: 'Salida',
+      origin: departureOrigin,
+      destination: departureDest,
+      pax: departurePax,
+      passenger: departurePassenger,
+      flight: departureFlight,
+      amount: '$0'
+    };
+
+    return [arrivalRow, departureRow];
+  }
+
+  // Single Leg / Other Service
+  const flightInfo = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ').trim() ||
+    (res.departureTimeFlight ? `Vuelo ${res.departureTimeFlight}` : '') ||
+    (res.flight || '');
+
+  const isArrival = res.serviceType === "Solo Llegada";
+  const defaultOrigin = isArrival ? 'Aeropuerto de Cancún' : '';
+  const origin = res.origin || res.originDeparture || defaultOrigin;
+  const destination = res.destination || res.arrivalDestination || res.departureDestination || '';
+
+  const dateFormatted = toMexicanDateFormat(res.dateArrival || res.dateDeparture || res.date) || res.date || '';
+  const timeFormatted = res.time || res.arrivalTime || res.departureTimeHotel || '';
+  const passengerName = res.passenger || res.name || (isArrival ? res.arrivalName : res.departureName) || '';
+  const paxValue = res.pax !== undefined && res.pax !== null && res.pax !== ''
+    ? String(res.pax)
+    : (res.peopleCount ? String(res.peopleCount) : (isArrival ? String(res.peopleCountArrival || '1') : String(res.peopleCountDeparture || '1')));
+
+  const service = res.serviceType 
+    ? (res.serviceType + (res.transferSubtype ? ` (${res.transferSubtype})` : (res.tourName ? `: ${res.tourName}` : ''))) 
+    : '';
+
+  const singleRow: SheetsRowData = {
+    code: baseCode,
+    date: dateFormatted,
+    time: timeFormatted,
+    serviceType: service,
+    origin: origin || '',
+    destination: destination || '',
+    pax: paxValue || '',
+    passenger: passengerName || '',
+    flight: flightInfo || '',
+    amount: amountStr || ''
+  };
+
+  return [singleRow];
+}
+
+/**
+ * Formats reservation data into clean Tab-Separated Values (TSV):
+ * When Round Trip: Outputs BOTH rows (Llegada and Salida) separated by \n
+ * Order: Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount
+ */
+export function formatReservationToTSV(res: Reservation | any): string {
+  const rows = getReservationRows(res);
+  return rows.map(r => [
+    r.code,
+    r.date,
+    r.time,
+    r.serviceType,
+    r.origin,
+    r.destination,
+    r.pax,
+    r.passenger,
+    r.flight,
+    r.amount
+  ].join('\t')).join('\n');
 }
 
 /**
@@ -249,51 +343,22 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
 
 /**
  * Sends reservation payload to Google Sheets webhook in background (POST request).
+ * Sends rows: [arrivalData, departureData] for Round Trips (or [singleData]),
+ * as well as top-level fields for total compatibility.
  * Uses text/plain;charset=utf-8 and no-cors to prevent browser CORS preflight blocking with Google Apps Script.
  */
 export async function sendReservationToGoogleSheets(res: Reservation | any): Promise<boolean> {
   try {
-    const flightInfo = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ').trim() ||
-      (res.departureTimeFlight ? `Vuelo ${res.departureTimeFlight}` : '') ||
-      (res.flight || '');
-
-    const origin = res.origin || res.originDeparture || (res.serviceType === "Llegada y Salida" || res.serviceType === "Solo Llegada" ? 'Aeropuerto de Cancún' : '');
-    const destination = res.destination || res.arrivalDestination || res.departureDestination || '';
-
-    const dateFormatted = toMexicanDateFormat(res.dateArrival || res.dateDeparture || res.date) || res.date || '';
-    const timeFormatted = res.time || res.arrivalTime || res.departureTimeHotel || '';
-    const passengerName = res.passenger || res.name || res.arrivalName || res.departureName || '';
-    const paxValue = res.pax !== undefined && res.pax !== null && res.pax !== ''
-      ? String(res.pax)
-      : (res.peopleCount ? String(res.peopleCount) : (res.peopleCountArrival ? String(res.peopleCountArrival) : (res.peopleCountDeparture ? String(res.peopleCountDeparture) : '')));
-
-    let amountStr = res.amount || '';
-    if (!amountStr) {
-      if (res.toPayUsd > 0) {
-        amountStr = `$${res.toPayUsd} USD`;
-      } else if (res.toPayMxn > 0) {
-        amountStr = `$${res.toPayMxn} MXN`;
-      } else if (res.depositUsd > 0) {
-        amountStr = `Pagado ($${res.depositUsd} USD)`;
-      } else if (res.depositMxn > 0) {
-        amountStr = `Pagado ($${res.depositMxn} MXN)`;
-      }
-    }
+    const rows = getReservationRows(res);
+    const primaryRow = rows[0];
 
     const payload = {
-      code: String(res.code || res.reservationNo || res.id || ''),
-      date: String(dateFormatted || ''),
-      time: String(timeFormatted || ''),
-      serviceType: String(res.serviceType ? (res.serviceType + (res.transferSubtype ? ` (${res.transferSubtype})` : '')) : ''),
-      origin: String(origin || ''),
-      destination: String(destination || ''),
-      pax: String(paxValue || ''),
-      passenger: String(passengerName || ''),
-      flight: String(flightInfo || ''),
-      amount: String(amountStr || '')
+      ...primaryRow,
+      serviceType: String(res.serviceType || primaryRow.serviceType),
+      rows: rows
     };
 
-    console.log('[GoogleSheets Webhook] POSTing clean JSON payload:', payload);
+    console.log('[GoogleSheets Webhook] POSTing clean JSON payload with rows array:', payload);
 
     await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
       method: 'POST',

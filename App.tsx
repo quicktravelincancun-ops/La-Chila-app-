@@ -824,8 +824,13 @@ ${rawText}
     // b) Copy that formatted row text to user's Clipboard automatically
     await copyTextToClipboard(tsvRow);
 
-    // c) Show alert: "✓ Datos copiados al portapapeles. Abriendo Google Sheets para pegar."
-    const alertMsg = "✓ Datos copiados al portapapeles. Abriendo Google Sheets para pegar.";
+    // c) Show alert: "✓ Ambas filas (Llegada y Salida) copiadas al portapapeles. Abriendo Sheets..." or single leg
+    const isRoundTrip = resToBackup.serviceType === "Llegada y Salida" || 
+      (resToBackup.dateArrival && resToBackup.dateDeparture && (resToBackup.arrivalTime || resToBackup.departureTimeHotel));
+
+    const alertMsg = isRoundTrip
+      ? "✓ Ambas filas (Llegada y Salida) copiadas al portapapeles. Abriendo Sheets..."
+      : "✓ Datos copiados al portapapeles. Abriendo Google Sheets para pegar.";
     showUIMessage(alertMsg);
     setSheetsFeedback({
       show: true,
