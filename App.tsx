@@ -63,6 +63,7 @@ const App: React.FC = () => {
   } | null>(null);
 
   const [processingMaster, setProcessingMaster] = useState(false);
+  const isProcessingMasterRef = React.useRef(false);
   const [sheetsFeedback, setSheetsFeedback] = useState<{
     show: boolean;
     type: 'success' | 'error';
@@ -117,6 +118,7 @@ const App: React.FC = () => {
   };
 
   const [formData, setFormData] = useState(initialFormState);
+  const [reservationSearch, setReservationSearch] = useState('');
 
   useEffect(() => {
     setIsWebView(isAndroidWebView());
@@ -362,100 +364,121 @@ const App: React.FC = () => {
   };
 
   const handleProcessAndGenerateVoucher = async () => {
-    let resolvedName = formData.name;
-    let resolvedPeopleCount = formData.peopleCount;
-
-    if (formData.serviceType === "Llegada y Salida") {
-      resolvedName = formData.arrivalName || formData.departureName || formData.name || '';
-      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCountDeparture || formData.peopleCount || 0;
-    } else if (formData.serviceType === "Solo Llegada") {
-      resolvedName = formData.arrivalName || formData.name || '';
-      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCount || 0;
-    } else {
-      // Solo Salida, Solo Traslado, Tour o Excursión, Circuito
-      resolvedName = formData.departureName || formData.name || '';
-      resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 0;
-    }
-
-    const finalData = { 
-      ...formData, 
-      name: resolvedName,
-      peopleCount: resolvedPeopleCount
-    };
-
-    let updated: Reservation[];
-    let savedRes: Reservation;
-
-    if (editingId) {
-      const existingRes = reservations.find(r => String(r.id) === String(editingId));
-      savedRes = { 
-        ...finalData, 
-        id: String(editingId), 
-        createdAt: existingRes?.createdAt || new Date().toISOString() 
-      } as Reservation;
-
-      updated = reservations.map(res => {
-        if (String(res.id) === String(editingId)) {
-          return savedRes;
-        }
-        return res;
-      });
-    } else {
-      const newRes: Reservation = {
-        ...finalData,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString(),
-      } as Reservation;
-      savedRes = newRes;
-      updated = [newRes, ...reservations];
-    }
-
+    if (processingMaster || isProcessingMasterRef.current) return;
+    isProcessingMasterRef.current = true;
     setProcessingMaster(true);
 
-    // a) Save reservation into app local memory
-    setReservations(updated);
-    localStorage.setItem('qt_reservations', JSON.stringify(updated));
-    localStorage.removeItem('qt_draft_voucher');
-    setLastAutoSaved(null);
-    setCurrentVoucher(savedRes);
-
-    // b) POST payload to Google Apps Script
-    let sheetsSuccess = false;
     try {
-      sheetsSuccess = await sendReservationToGoogleSheets(savedRes);
-    } catch (err) {
-      console.warn("Error enviando a Google Sheets:", err);
-      sheetsSuccess = false;
-    }
+      let resolvedName = formData.name;
+      let resolvedPeopleCount = formData.peopleCount;
 
-    // c) Show explicit confirmation modal/toast
-    if (sheetsSuccess) {
-      setSheetsFeedback({
-        show: true,
-        type: 'success',
-        message: '✓ Guardado con éxito en Google Sheets'
+      if (formData.serviceType === "Llegada y Salida") {
+        resolvedName = formData.arrivalName || formData.departureName || formData.name || '';
+        resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCountDeparture || formData.peopleCount || 0;
+      } else if (formData.serviceType === "Solo Llegada") {
+        resolvedName = formData.arrivalName || formData.name || '';
+        resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCount || 0;
+      } else {
+        // Solo Salida, Solo Traslado, Tour o Excursión, Circuito
+        resolvedName = formData.departureName || formData.name || '';
+        resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 0;
+      }
+
+      const finalData = { 
+        ...formData, 
+        name: resolvedName,
+        peopleCount: resolvedPeopleCount
+      };
+
+      let updated: Reservation[];
+      let savedRes: Reservation;
+      const isEditing = Boolean(editingId);
+
+      if (editingId) {
+        const existingRes = reservations.find(r => String(r.id) === String(editingId));
+        savedRes = { 
+          ...finalData, 
+          id: String(editingId), 
+          reservationNo: formData.reservationNo, // PRESERVAR exactamente el mismo folio
+          createdAt: existingRes?.createdAt || new Date().toISOString() 
+        } as Reservation;
+
+        // REESCRIBIR en memoria local: reemplaza la reserva existente y deduplica cualquier copia con el mismo folio
+        updated = reservations.map(res => {
+          if (String(res.id) === String(editingId) || (res.reservationNo && res.reservationNo === savedRes.reservationNo)) {
+            return savedRes;
+          }
+          return res;
+        });
+      } else {
+        const newRes: Reservation = {
+          ...finalData,
+          id: Date.now().toString(),
+          createdAt: new Date().toISOString(),
+        } as Reservation;
+        savedRes = newRes;
+
+        // Evitar duplicaciones accidentales en memoria si ya existiera con el mismo folio
+        const existingIdx = reservations.findIndex(r => r.reservationNo && r.reservationNo === newRes.reservationNo);
+        if (existingIdx >= 0) {
+          updated = reservations.map((r, idx) => idx === existingIdx ? newRes : r);
+        } else {
+          updated = [newRes, ...reservations];
+        }
+      }
+
+      // a) Save reservation into app local memory
+      setReservations(updated);
+      localStorage.setItem('qt_reservations', JSON.stringify(updated));
+      localStorage.removeItem('qt_draft_voucher');
+      setLastAutoSaved(null);
+      setCurrentVoucher(savedRes);
+
+      // b) POST payload to Google Apps Script (con flag isEditing para reescribir/actualizar)
+      let sheetsSuccess = false;
+      try {
+        sheetsSuccess = await sendReservationToGoogleSheets(savedRes, isEditing);
+      } catch (err) {
+        console.warn("Error enviando a Google Sheets:", err);
+        sheetsSuccess = false;
+      }
+
+      // c) Show explicit confirmation modal/toast
+      const successFeedbackMsg = isEditing
+        ? '✓ Reserva reescrita y actualizada con éxito en Google Sheets'
+        : '✓ Guardado con éxito en Google Sheets';
+
+      if (sheetsSuccess) {
+        setSheetsFeedback({
+          show: true,
+          type: 'success',
+          message: successFeedbackMsg
+        });
+        showUIMessage(successFeedbackMsg);
+      } else {
+        setSheetsFeedback({
+          show: true,
+          type: 'error',
+          message: '⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual'
+        });
+        showUIMessage("⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual");
+      }
+
+      // d) Open Voucher Preview
+      setShowVoucherModal({ show: true, reservation: savedRes });
+
+      // e) Automatically reset/clear form fields after processing
+      setEditingId(null);
+      setFormData({
+        ...initialFormState,
+        reservationNo: generateNewId()
       });
-      showUIMessage("✓ Guardado con éxito en Google Sheets");
-    } else {
-      setSheetsFeedback({
-        show: true,
-        type: 'error',
-        message: '⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual'
-      });
-      showUIMessage("⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual");
+    } finally {
+      setProcessingMaster(false);
+      setTimeout(() => {
+        isProcessingMasterRef.current = false;
+      }, 1200);
     }
-
-    // d) Open Voucher Preview
-    setShowVoucherModal({ show: true, reservation: savedRes });
-
-    // e) Automatically reset/clear form fields after processing
-    setEditingId(null);
-    setFormData({
-      ...initialFormState,
-      reservationNo: generateNewId()
-    });
-
-    setProcessingMaster(false);
   };
 
   const handleSave = (andExportPdf: boolean = false) => {
@@ -470,23 +493,40 @@ const App: React.FC = () => {
       ...initialFormState,
       reservationNo: generateNewId()
     });
-    showUIMessage('ℹ️ Edición cancelada.');
+    showUIMessage('ℹ️ Edición cancelada. Formulario reiniciado para nueva reserva.');
+  };
+
+  const handleDeleteReservation = (id: string) => {
+    const resToDelete = reservations.find(r => String(r.id) === String(id));
+    if (!resToDelete) return;
+    if (window.confirm(`¿Deseas eliminar la reservación #${resToDelete.reservationNo} (${resToDelete.name})? Esta acción no se puede deshacer.`)) {
+      const updated = reservations.filter(r => String(r.id) !== String(id));
+      setReservations(updated);
+      localStorage.setItem('qt_reservations', JSON.stringify(updated));
+      if (editingId && String(editingId) === String(id)) {
+        cancelEdit();
+      }
+      showUIMessage(`🗑️ Reservación #${resToDelete.reservationNo} eliminada.`);
+    }
   };
 
   const handleEdit = (res: Reservation) => {
     setEditingId(res.id);
     const { id, createdAt, ...dataToEdit } = res;
-    // Merge with initial state to ensure all fields exist
+    // Merge with initial state to ensure all fields exist and keep reservationNo intact
     setFormData({
       ...initialFormState,
-      ...dataToEdit
+      ...dataToEdit,
+      reservationNo: res.reservationNo
     });
     setActiveTab('create');
     setCurrentVoucher(res);
     setPreviewLanguage('es');
-    showUIMessage(`✏️ Editando reserva ${res.reservationNo}`);
-    // Scroll to top to see the form
+    showUIMessage(`✏️ Editando reserva #${res.reservationNo} — Al procesar se reescribirán los datos.`);
+    // Scroll to top of window and main container so user immediately sees the form
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    const mainEl = document.querySelector('main');
+    if (mainEl) mainEl.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleAIParsing = async () => {
@@ -762,9 +802,6 @@ ${rawText}
       type: 'success',
       message: alertMsg
     });
-
-    // Also trigger background POST to Google Apps Script (posts both rows separately for Round Trips!)
-    sendReservationToGoogleSheets(resToBackup).catch(err => console.warn(err));
 
     // d) Open Google Sheets URL in a new tab: https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit
     setTimeout(() => {
@@ -1090,26 +1127,41 @@ ${rawText}
       )}
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
-        <header className="bg-white border-b border-gray-100 px-6 py-4 flex justify-between items-center z-50">
-          <Logo height="h-12" />
-          <nav className="flex bg-gray-100 p-1.5 rounded-2xl">
-            <button onClick={() => { setActiveTab('create'); }} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase ${activeTab === 'create' ? 'bg-white text-[#0a305e]' : 'text-gray-400'}`}>Nuevo Voucher</button>
-            <button onClick={() => setActiveTab('history')} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase ${activeTab === 'history' ? 'bg-white text-[#0a305e]' : 'text-gray-400'}`}>Reservaciones</button>
+        <header className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap justify-between items-center gap-3 z-50">
+          <Logo height="h-10 sm:h-12" />
+          <nav className="flex bg-gray-100 p-1 sm:p-1.5 rounded-2xl shrink-0">
+            <button 
+              type="button"
+              onClick={() => { setActiveTab('create'); }} 
+              className={`px-3.5 sm:px-6 py-2 sm:py-2.5 rounded-xl text-[10px] font-black uppercase transition-all cursor-pointer ${activeTab === 'create' ? 'bg-white text-[#0a305e] shadow-xs' : 'text-gray-400'}`}
+            >
+              Nuevo Voucher
+            </button>
+            <button 
+              type="button"
+              onClick={() => setActiveTab('history')} 
+              className={`px-3.5 sm:px-6 py-2 sm:py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${activeTab === 'history' ? 'bg-white text-[#0a305e] shadow-xs' : 'text-gray-400'}`}
+            >
+              <span>Reservaciones</span>
+              <span className="w-5 h-5 rounded-full bg-blue-100 text-[#0a305e] text-[9px] font-black flex items-center justify-center">
+                {reservations.length}
+              </span>
+            </button>
           </nav>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-6 md:p-10 space-y-10">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 md:p-10 space-y-6 sm:space-y-10">
           {activeTab === 'create' ? (
-            <div className="max-w-6xl mx-auto space-y-12">
-              <section className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl border border-gray-100">
+            <div className="max-w-6xl mx-auto space-y-8 sm:space-y-12">
+              <section className="bg-white p-5 sm:p-8 md:p-12 rounded-[32px] sm:rounded-[40px] shadow-2xl border border-gray-100">
                 <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
                   <div className="flex flex-wrap items-center gap-3">
-                    <h2 className="text-2xl font-black uppercase">
+                    <h2 className="text-xl sm:text-2xl font-black uppercase">
                       {editingId ? 'Editar Reservación' : 'Registro de Servicio'}
                     </h2>
                     {editingId ? (
-                      <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1.5 rounded-full text-[10px] font-black border border-amber-200/80 shadow-sm animate-in fade-in">
-                        <i className="fas fa-edit text-amber-600"></i> Modo Edición
+                      <span className="inline-flex items-center gap-1.5 bg-amber-500 text-white px-3 py-1.5 rounded-full text-[10px] font-black shadow-sm animate-in fade-in">
+                        <i className="fas fa-edit text-xs"></i> Modo Edición (Reescritura)
                       </span>
                     ) : lastAutoSaved ? (
                       <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-[10px] font-black border border-emerald-200/60 shadow-sm animate-in fade-in">
@@ -1125,43 +1177,53 @@ ${rawText}
                   <div className="flex items-center gap-3">
                     {editingId ? (
                       <button 
+                        type="button"
                         onClick={cancelEdit}
                         title="Cancelar edición y volver a nuevo registro"
-                        className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-2xl font-black uppercase text-[10px] transition-all flex items-center gap-1.5"
+                        className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-2xl font-black uppercase text-[10px] transition-all flex items-center gap-1.5 cursor-pointer"
                       >
                         <i className="fas fa-times text-xs"></i> Cancelar Edición
                       </button>
                     ) : (
                       <button 
+                        type="button"
                         onClick={resetForm}
                         title="Limpiar campos y borrar borrador"
-                        className="px-4 py-2.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-500 rounded-2xl font-black uppercase text-[10px] transition-all flex items-center gap-1.5"
+                        className="px-4 py-2.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-500 rounded-2xl font-black uppercase text-[10px] transition-all flex items-center gap-1.5 cursor-pointer"
                       >
                         <i className="fas fa-trash-alt text-xs"></i> Limpiar Formulario
                       </button>
                     )}
-                    <div className="bg-blue-50 px-6 py-3 rounded-2xl font-mono text-lg font-black text-blue-600">
-                      {formData.reservationNo}
+                    <div className="bg-blue-50 px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl font-mono text-base sm:text-lg font-black text-blue-600">
+                      #{formData.reservationNo}
                     </div>
                   </div>
                 </div>
 
                 {editingId && (
-                  <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between gap-4 text-amber-900 animate-in fade-in">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold">
-                        <i className="fas fa-pen text-sm"></i>
+                  <div className="mb-8 p-4 sm:p-5 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl flex flex-wrap items-center justify-between gap-4 text-amber-950 animate-in fade-in shadow-sm">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-black shadow-md shrink-0">
+                        <i className="fas fa-pen-to-square text-base"></i>
                       </div>
                       <div>
-                        <p className="text-xs font-black uppercase tracking-wide">Editando la Reserva #{formData.reservationNo}</p>
-                        <p className="text-[11px] text-amber-700">Realiza tus modificaciones y haz clic en "Actualizar y Descargar PDF" o "Actualizar Reserva".</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-black uppercase tracking-wide text-amber-900">
+                            Modo Edición: Reservación #{formData.reservationNo}
+                          </p>
+                          <span className="bg-amber-200 text-amber-800 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">Reescribir</span>
+                        </div>
+                        <p className="text-[11px] text-amber-800 mt-0.5 font-medium">
+                          Al presionar <strong>"GUARDAR CAMBIOS Y REESCRIBIR RESERVA"</strong>, esta reserva se actualizará en memoria y se registrará en Google Sheets corrigiendo los datos existentes.
+                        </p>
                       </div>
                     </div>
                     <button 
+                      type="button"
                       onClick={cancelEdit}
-                      className="px-3 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-xl text-[10px] font-black uppercase hover:bg-amber-100 transition-all"
+                      className="py-2 px-3.5 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 rounded-xl text-[10px] font-black uppercase transition-all cursor-pointer shadow-2xs"
                     >
-                      Descartar cambios
+                      <i className="fas fa-times mr-1"></i> Descartar cambios
                     </button>
                   </div>
                 )}
@@ -1514,11 +1576,19 @@ ${rawText}
                       type="button"
                       onClick={handleProcessAndGenerateVoucher} 
                       disabled={processingMaster}
-                      className="w-full py-5 px-6 bg-gradient-to-r from-[#0a305e] via-blue-900 to-emerald-700 hover:from-blue-950 hover:to-emerald-800 text-white rounded-2xl font-black uppercase text-xs sm:text-sm tracking-wide shadow-xl hover:shadow-2xl hover:scale-[1.006] active:scale-[0.99] transition-all flex items-center justify-center gap-3 cursor-pointer disabled:opacity-60"
-                      title="Guardar en memoria, registrar en Google Sheets y abrir voucher de confirmación"
+                      className={`w-full py-5 px-6 ${
+                        editingId 
+                          ? 'bg-gradient-to-r from-amber-600 via-amber-700 to-emerald-700 hover:from-amber-700 hover:to-emerald-800' 
+                          : 'bg-gradient-to-r from-[#0a305e] via-blue-900 to-emerald-700 hover:from-blue-950 hover:to-emerald-800'
+                      } text-white rounded-2xl font-black uppercase text-xs sm:text-sm tracking-wide shadow-xl hover:shadow-2xl hover:scale-[1.006] active:scale-[0.99] transition-all flex items-center justify-center gap-3 cursor-pointer disabled:opacity-60`}
+                      title={editingId ? "Guardar cambios y reescribir reserva en memoria y Google Sheets" : "Guardar en memoria, registrar en Google Sheets y abrir voucher de confirmación"}
                     >
-                      <i className={`fas ${processingMaster ? 'fa-spinner fa-spin text-emerald-300' : 'fa-check-circle text-emerald-400'} text-base sm:text-lg`}></i>
-                      <span>{processingMaster ? 'PROCESANDO Y SINCRONIZANDO...' : (editingId ? 'ACTUALIZAR RESERVA Y GENERAR VOUCHER' : 'PROCESAR RESERVA Y GENERAR VOUCHER')}</span>
+                      <i className={`fas ${processingMaster ? 'fa-spinner fa-spin text-emerald-300' : (editingId ? 'fa-pen-to-square text-amber-200' : 'fa-check-circle text-emerald-400')} text-base sm:text-lg`}></i>
+                      <span>
+                        {processingMaster 
+                          ? (editingId ? 'REESCRIBIENDO Y SINCRONIZANDO...' : 'PROCESANDO Y SINCRONIZANDO...') 
+                          : (editingId ? 'GUARDAR CAMBIOS Y REESCRIBIR RESERVA' : 'PROCESAR RESERVA Y GENERAR VOUCHER')}
+                      </span>
                     </button>
                   </div>
 
@@ -1617,67 +1687,309 @@ ${rawText}
               )}
             </div>
           ) : (
-            <div className="max-w-6xl mx-auto">
-              <div className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-gray-100">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 text-slate-400 uppercase text-[9px] font-black tracking-widest border-b border-gray-100">
-                    <tr>
-                      <th className="px-10 py-6">ID</th>
-                      <th className="px-10 py-6">Pasajero</th>
-                      <th className="px-10 py-6">Servicio</th>
-                      <th className="px-10 py-6 text-center">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {reservations.map(res => (
-                      <tr key={res.id} className="hover:bg-blue-50/40 transition-colors group">
-                        <td className="px-10 py-6 font-mono font-bold text-blue-600">{res.reservationNo}</td>
-                        <td className="px-10 py-6 font-black uppercase text-xs">{res.name}</td>
-                        <td className="px-10 py-6 text-[9px] font-bold text-slate-400 uppercase">{res.serviceType}</td>
-                        <td className="px-10 py-6 text-center">
-                          <div className="flex justify-center items-center gap-2">
-                            <button 
-                              onClick={() => {
-                                setCurrentVoucher(res);
-                                setShowVoucherModal({ show: true, reservation: res });
-                              }} 
-                              className="px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-xl text-[9px] font-black uppercase transition-all flex items-center gap-1.5"
-                            >
-                              <i className="fas fa-file-invoice"></i> Voucher
-                            </button>
-                            {(res.serviceType === "Llegada y Salida" || res.serviceType === "Solo Llegada") && (
-                              <button 
-                                onClick={() => handleSendToDriver('arrival', res)} 
-                                className="px-2.5 py-1.5 bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366] hover:text-white rounded-xl text-[9px] font-black uppercase transition-all flex items-center gap-1"
-                                title="Enviar orden de llegada al chofer"
-                              >
-                                <i className="fab fa-whatsapp text-xs"></i> Llegada
-                              </button>
-                            )}
-                            {(res.serviceType === "Llegada y Salida" || res.serviceType === "Solo Salida" || res.serviceType === "Solo Traslado" || res.serviceType === "Tour o Excursión" || res.serviceType === "Circuito") && (
-                              <button 
-                                onClick={() => handleSendToDriver('departure', res)} 
-                                className="px-2.5 py-1.5 bg-[#128C7E]/10 text-[#128C7E] hover:bg-[#128C7E] hover:text-white rounded-xl text-[9px] font-black uppercase transition-all flex items-center gap-1"
-                                title="Enviar orden de salida al chofer"
-                              >
-                                <i className="fab fa-whatsapp text-xs"></i> Salida
-                              </button>
-                            )}
-                            <button 
-                              onClick={() => handleEdit(res)} 
-                              className="px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-500 hover:text-white rounded-xl text-[9px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer shadow-sm"
-                              title="Editar reserva y recargarla en el formulario"
-                            >
-                              <i className="fas fa-edit text-xs"></i>
-                              <span>Editar</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div className="max-w-6xl mx-auto space-y-6">
+              {/* Header and Search for Reservations */}
+              <div className="bg-white p-5 sm:p-6 rounded-[28px] sm:rounded-[36px] shadow-xl border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2.5">
+                    <h2 className="text-xl sm:text-2xl font-black uppercase text-slate-900 tracking-tight">
+                      Reservaciones Guardadas
+                    </h2>
+                    <span className="bg-blue-50 text-blue-700 text-xs font-black px-2.5 py-1 rounded-xl border border-blue-100">
+                      {reservations.length}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 font-bold uppercase mt-1">
+                    Edita, reescribe o envía órdenes sin necesidad de girar la pantalla
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2.5 flex-1 max-w-md">
+                  <div className="relative flex-1">
+                    <i className="fas fa-search absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                    <input
+                      type="text"
+                      value={reservationSearch}
+                      onChange={(e) => setReservationSearch(e.target.value)}
+                      placeholder="Buscar por pasajero, folio, servicio..."
+                      className="w-full pl-9 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-all"
+                    />
+                    {reservationSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setReservationSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs p-1"
+                        title="Limpiar búsqueda"
+                      >
+                        <i className="fas fa-times"></i>
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('create')}
+                    className="py-2.5 px-4 bg-[#0a305e] hover:bg-blue-900 text-white rounded-2xl text-[11px] font-black uppercase transition-all shadow-md shrink-0 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <i className="fas fa-plus text-xs"></i>
+                    <span className="hidden sm:inline">Nueva</span>
+                  </button>
+                </div>
               </div>
+
+              {reservations.length === 0 ? (
+                <div className="bg-white rounded-[32px] p-12 text-center border border-gray-100 shadow-xl max-w-md mx-auto">
+                  <div className="w-16 h-16 mx-auto mb-4 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-2xl shadow-sm">
+                    <i className="fas fa-folder-open"></i>
+                  </div>
+                  <h3 className="font-black text-slate-800 uppercase text-base tracking-wide">No hay reservaciones guardadas</h3>
+                  <p className="text-xs text-slate-400 font-bold uppercase mt-1">Crea una nueva reserva en el formulario para gestionarla aquí</p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('create')}
+                    className="mt-6 py-3.5 px-6 bg-[#0a305e] hover:bg-blue-900 text-white rounded-2xl font-black uppercase text-xs transition-all shadow-md cursor-pointer"
+                  >
+                    Crear Nueva Reserva
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* MOBILE & DESKTOP: 100% Portrait-Friendly Card Grid (No horizontal rotation required) */}
+                  {(() => {
+                    const filtered = reservations.filter(r => {
+                      if (!reservationSearch.trim()) return true;
+                      const q = reservationSearch.toLowerCase().trim();
+                      return (
+                        (r.name && r.name.toLowerCase().includes(q)) ||
+                        (r.reservationNo && r.reservationNo.toLowerCase().includes(q)) ||
+                        (r.serviceType && r.serviceType.toLowerCase().includes(q)) ||
+                        (r.destination && r.destination.toLowerCase().includes(q)) ||
+                        (r.origin && r.origin.toLowerCase().includes(q))
+                      );
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="bg-white rounded-3xl p-8 text-center border border-slate-100 shadow-sm">
+                          <p className="text-slate-500 font-bold text-sm">No se encontraron reservas con "{reservationSearch}"</p>
+                          <button
+                            type="button"
+                            onClick={() => setReservationSearch('')}
+                            className="mt-3 text-blue-600 font-black text-xs uppercase underline cursor-pointer"
+                          >
+                            Mostrar todas las reservaciones
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                        {filtered.map(res => {
+                          const depMxn = Number(res.depositMxn || 0);
+                          const payMxn = Number(res.toPayMxn || 0);
+                          const depUsd = Number(res.depositUsd || 0);
+                          const payUsd = Number(res.toPayUsd || 0);
+                          const hasMxn = depMxn > 0 || payMxn > 0;
+                          const hasUsd = depUsd > 0 || payUsd > 0;
+
+                          return (
+                            <div 
+                              key={res.id} 
+                              className="bg-white rounded-3xl p-5 sm:p-6 shadow-xl border border-slate-100 hover:border-blue-200 transition-all space-y-4 flex flex-col justify-between"
+                            >
+                              <div className="space-y-3.5">
+                                {/* Card Header: Folio, Service & Prominent EDITAR Button */}
+                                <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-mono font-black text-sm sm:text-base text-blue-600 bg-blue-50 px-2.5 py-1 rounded-xl">
+                                      #{res.reservationNo}
+                                    </span>
+                                    <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[10px] font-black uppercase tracking-wider">
+                                      {res.serviceType}
+                                    </span>
+                                  </div>
+
+                                  {/* Prominent Header EDITAR button: Always accessible without scrolling */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEdit(res)}
+                                    className="py-1.5 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[11px] font-black uppercase flex items-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer shrink-0"
+                                    title="Editar reserva y recargarla en el formulario para reescribirla"
+                                  >
+                                    <i className="fas fa-edit text-xs"></i>
+                                    <span>EDITAR</span>
+                                  </button>
+                                </div>
+
+                                {/* Passenger Titular & Pax */}
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <span className="text-[10px] uppercase font-black text-slate-400 block tracking-wider">Pasajero Titular</span>
+                                    <span className="font-black text-base text-slate-900 uppercase leading-snug">{res.name}</span>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <span className="text-[10px] uppercase font-black text-slate-400 block tracking-wider">Pax</span>
+                                    <span className="font-black text-xs text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg inline-block">
+                                      {res.peopleCount || 1} PAX
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Route, Dates & Times */}
+                                <div className="bg-slate-50 p-3 sm:p-3.5 rounded-2xl border border-slate-100 space-y-1.5 text-xs">
+                                  {(res.origin || res.destination || res.arrivalDestination) && (
+                                    <div className="flex items-start gap-2 text-slate-700">
+                                      <i className="fas fa-map-marker-alt text-blue-500 text-xs mt-0.5 shrink-0"></i>
+                                      <div className="leading-snug">
+                                        <span className="font-bold text-slate-500 text-[10px] uppercase mr-1">Ruta:</span>
+                                        <span className="font-bold">{res.origin || 'Aeropuerto'}</span>
+                                        <span className="mx-1 text-slate-400">➔</span>
+                                        <span className="font-bold">{res.destination || res.arrivalDestination || 'Hotel / Destino'}</span>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {res.dateArrival && (
+                                    <div className="flex items-center gap-2 text-slate-700 flex-wrap">
+                                      <i className="fas fa-plane-arrival text-emerald-500 text-xs shrink-0"></i>
+                                      <span className="font-bold text-slate-500 text-[10px] uppercase">Llegada:</span>
+                                      <span className="font-bold">{res.dateArrival}</span>
+                                      {res.arrivalTime && <span className="text-slate-600 font-medium">({res.arrivalTime} hrs)</span>}
+                                      {res.flightNoArrival && (
+                                        <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200/60">
+                                          Vuelo: {res.flightNoArrival}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {res.dateDeparture && (
+                                    <div className="flex items-center gap-2 text-slate-700 flex-wrap">
+                                      <i className="fas fa-plane-departure text-teal-500 text-xs shrink-0"></i>
+                                      <span className="font-bold text-slate-500 text-[10px] uppercase">Salida:</span>
+                                      <span className="font-bold">{res.dateDeparture}</span>
+                                      {res.departureTimeHotel && <span className="text-slate-600 font-medium">(Pick-up {res.departureTimeHotel} hrs)</span>}
+                                      {res.departureTimeFlight && (
+                                        <span className="bg-teal-50 text-teal-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-teal-200/60">
+                                          Vuelo: {res.departureTimeFlight}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Financial Details: Depósito, A Pagar y Total */}
+                                <div className="bg-amber-50/70 p-3 sm:p-3.5 rounded-2xl border border-amber-200/70 space-y-2">
+                                  <div className="flex items-center justify-between text-xs border-b border-amber-200/60 pb-1">
+                                    <span className="text-[10px] font-black uppercase text-amber-900 flex items-center gap-1.5">
+                                      <i className="fas fa-wallet text-amber-600"></i> Desglose de Precios / Saldos:
+                                    </span>
+                                    <span className="text-[10px] text-amber-700 font-bold italic">
+                                      {payMxn > 0 || payUsd > 0 ? 'Cobro directo al cliente' : 'Servicio liquidado'}
+                                    </span>
+                                  </div>
+
+                                  {hasMxn || hasUsd ? (
+                                    <div className="flex flex-col sm:flex-row flex-wrap gap-2 text-xs">
+                                      {hasMxn && (
+                                        <div className="bg-white px-2.5 py-1.5 rounded-xl border border-amber-200 shadow-2xs flex items-center gap-1.5 flex-wrap">
+                                          <span className="text-[9px] font-black text-blue-700 bg-blue-50 px-1 py-0.5 rounded">MXN</span>
+                                          <span className="text-slate-600 text-[11px]">Depósito: <strong className="text-slate-900">${depMxn}</strong></span>
+                                          <span className="text-slate-300">|</span>
+                                          <span className="text-slate-600 text-[11px]">A Pagar: <strong className="text-[#f05a28] font-black">${payMxn}</strong></span>
+                                          <span className="text-slate-300">|</span>
+                                          <span className="text-slate-700 text-[11px] font-bold">Total: ${depMxn + payMxn}</span>
+                                        </div>
+                                      )}
+                                      {hasUsd && (
+                                        <div className="bg-white px-2.5 py-1.5 rounded-xl border border-emerald-200 shadow-2xs flex items-center gap-1.5 flex-wrap">
+                                          <span className="text-[9px] font-black text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded">USD</span>
+                                          <span className="text-slate-600 text-[11px]">Depósito: <strong className="text-slate-900">${depUsd}</strong></span>
+                                          <span className="text-slate-300">|</span>
+                                          <span className="text-slate-600 text-[11px]">A Pagar: <strong className="text-[#f05a28] font-black">${payUsd}</strong></span>
+                                          <span className="text-slate-300">|</span>
+                                          <span className="text-slate-700 text-[11px] font-bold">Total: ${depUsd + payUsd}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-slate-600 font-medium">
+                                      {res.amount && res.amount !== '$0' ? res.amount : 'Sin saldos registrados ($0)'}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Card Action Buttons: Vertical / Mobile friendly */}
+                              <div className="pt-3 border-t border-slate-100 mt-2">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEdit(res)}
+                                    className="py-3 px-2 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl text-[11px] font-black uppercase flex items-center justify-center gap-1 shadow-md active:scale-95 transition-all cursor-pointer"
+                                    title="Editar reserva y recargarla en el formulario para reescribirla"
+                                  >
+                                    <i className="fas fa-edit text-xs"></i>
+                                    <span>EDITAR</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCurrentVoucher(res);
+                                      setShowVoucherModal({ show: true, reservation: res });
+                                    }}
+                                    className="py-3 px-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-2xl text-[11px] font-black uppercase flex items-center justify-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer"
+                                    title="Ver voucher digital"
+                                  >
+                                    <i className="fas fa-file-invoice text-xs"></i>
+                                    <span>VOUCHER</span>
+                                  </button>
+
+                                  {(res.serviceType === "Llegada y Salida" || res.serviceType === "Solo Llegada") && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSendToDriver('arrival', res)}
+                                      className="py-3 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-2xl text-[11px] font-black uppercase flex items-center justify-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer"
+                                      title="Enviar orden de llegada al chofer por WhatsApp"
+                                    >
+                                      <i className="fab fa-whatsapp text-sm text-emerald-600"></i>
+                                      <span>LLEGADA</span>
+                                    </button>
+                                  )}
+
+                                  {(res.serviceType === "Llegada y Salida" || res.serviceType === "Solo Salida" || res.serviceType === "Solo Traslado" || res.serviceType === "Tour o Excursión" || res.serviceType === "Circuito") && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSendToDriver('departure', res)}
+                                      className="py-3 px-2 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-2xl text-[11px] font-black uppercase flex items-center justify-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer"
+                                      title="Enviar orden de salida al chofer por WhatsApp"
+                                    >
+                                      <i className="fab fa-whatsapp text-sm text-teal-600"></i>
+                                      <span>SALIDA</span>
+                                    </button>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteReservation(res.id)}
+                                    className="py-3 px-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-2xl text-[11px] font-black uppercase flex items-center justify-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer"
+                                    title="Eliminar esta reservación duplicada"
+                                  >
+                                    <i className="fas fa-trash-alt text-xs text-rose-500"></i>
+                                    <span>BORRAR</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
             </div>
           )}
         </main>

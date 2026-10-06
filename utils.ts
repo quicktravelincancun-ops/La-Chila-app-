@@ -172,24 +172,60 @@ export interface SheetsRowData {
   amount: string;
 }
 
+export function getReservationBalanceString(res: Reservation | any): string {
+  const depMxn = Number(res.depositMxn || 0);
+  const payMxn = Number(res.toPayMxn || 0);
+  const depUsd = Number(res.depositUsd || 0);
+  const payUsd = Number(res.toPayUsd || 0);
+
+  const parts: string[] = [];
+
+  // MXN: Include both Depósito and Saldo a pagar
+  if (depMxn > 0 || payMxn > 0) {
+    const totalMxn = depMxn + payMxn;
+    if (depMxn > 0 && payMxn > 0) {
+      parts.push(`Dep: $${depMxn} | Saldo: $${payMxn} MXN (Total: $${totalMxn})`);
+    } else if (depMxn > 0 && payMxn === 0) {
+      parts.push(`Pagado: $${depMxn} MXN (Depósito: $${depMxn})`);
+    } else {
+      parts.push(`Dep: $0 | Saldo: $${payMxn} MXN`);
+    }
+  }
+
+  // USD: Include both Depósito and Saldo a pagar
+  if (depUsd > 0 || payUsd > 0) {
+    const totalUsd = depUsd + payUsd;
+    if (depUsd > 0 && payUsd > 0) {
+      parts.push(`Dep: $${depUsd} | Saldo: $${payUsd} USD (Total: $${totalUsd})`);
+    } else if (depUsd > 0 && payUsd === 0) {
+      parts.push(`Pagado: $${depUsd} USD (Depósito: $${depUsd})`);
+    } else {
+      parts.push(`Dep: $0 | Saldo: $${payUsd} USD`);
+    }
+  }
+
+  if (parts.length > 0) {
+    return parts.join(' / ');
+  }
+
+  // If res.amount exists and is already formatted:
+  if (res.amount && typeof res.amount === 'string' && res.amount.trim() && res.amount.trim() !== '$0') {
+    return res.amount.trim();
+  }
+
+  return '$0';
+}
+
 /**
  * Extracts and constructs either 1 or 2 rows (for Round Trips / Llegada y Salida):
  * Row 1: Llegada
  * Row 2: Salida
  */
 export function getReservationRows(res: Reservation | any): SheetsRowData[] {
-  let amountStr = res.amount || '';
-  if (!amountStr) {
-    if (res.toPayUsd > 0) {
-      amountStr = `$${res.toPayUsd} USD`;
-    } else if (res.toPayMxn > 0) {
-      amountStr = `$${res.toPayMxn} MXN`;
-    } else if (res.depositUsd > 0) {
-      amountStr = `Pagado ($${res.depositUsd} USD)`;
-    } else if (res.depositMxn > 0) {
-      amountStr = `Pagado ($${res.depositMxn} MXN)`;
-    }
-  }
+  const balanceStr = getReservationBalanceString(res);
+  const payMxn = Number(res.toPayMxn || 0);
+  const payUsd = Number(res.toPayUsd || 0);
+  const hasPendingBalance = payMxn > 0 || payUsd > 0;
 
   const baseCode = String(res.code || res.reservationNo || res.id || '');
   const rawService = String(res.serviceType || '').trim();
@@ -228,7 +264,7 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
       pax: arrivalPax,
       passenger: arrivalPassenger,
       flight: arrivalFlight,
-      amount: amountStr || '$0'
+      amount: balanceStr
     };
 
     // 2. Departure Leg (Salida) - Service must ONLY be 'Salida'
@@ -252,7 +288,7 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
       pax: departurePax,
       passenger: departurePassenger,
       flight: departureFlight,
-      amount: '$0'
+      amount: hasPendingBalance ? '$0 (Cobrado en Llegada)' : '$0'
     };
 
     return [arrivalRow, departureRow];
@@ -301,7 +337,7 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
     pax: paxValue || '',
     passenger: passengerName || '',
     flight: flightInfo || '',
-    amount: amountStr || ''
+    amount: balanceStr
   };
 
   return [singleRow];
@@ -366,19 +402,43 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
   }
 }
 
+const recentlySentCodes = new Map<string, number>();
+
 /**
  * Sends reservation payload to Google Sheets webhook in background (POST request).
  * For Round Trips (Llegada y Salida), executes separate POST requests for each row (Row 1: Llegada, Row 2: Salida)
- * so that Google Apps Script registers both rows separately, and includes rows array for batch scripts.
+ * with a safe delay so Google Apps Script appends both rows sequentially and exactly once.
  * Uses text/plain;charset=utf-8 and no-cors to prevent browser CORS preflight blocking with Google Apps Script.
+ * When isEdit is true, flags payload with action: 'update', mode: 'rewrite', isEdit: true.
  */
-export async function sendReservationToGoogleSheets(res: Reservation | any): Promise<boolean> {
+export async function sendReservationToGoogleSheets(
+  res: Reservation | any,
+  isEdit: boolean = false
+): Promise<boolean> {
+  const code = String(res.code || res.reservationNo || res.id || '').trim();
+  const now = Date.now();
+
+  // Deduplication check: prevent multiple clicks or calls from sending duplicate rows within 4 seconds
+  if (code && !isEdit && recentlySentCodes.has(code)) {
+    const lastSent = recentlySentCodes.get(code)!;
+    if (now - lastSent < 4000) {
+      console.log(`[GoogleSheets Webhook] Skipping duplicate send for code ${code} (${now - lastSent}ms ago)`);
+      return true;
+    }
+  }
+  if (code) {
+    recentlySentCodes.set(code, now);
+  }
+
   try {
     const rows = getReservationRows(res);
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const payload = {
+        action: isEdit ? 'update' : 'create',
+        mode: isEdit ? 'rewrite' : 'insert',
+        isEdit: isEdit,
         code: row.code,
         date: row.date,
         time: row.time,
@@ -388,11 +448,10 @@ export async function sendReservationToGoogleSheets(res: Reservation | any): Pro
         pax: row.pax,
         passenger: row.passenger,
         flight: row.flight,
-        amount: row.amount,
-        rows: rows
+        amount: row.amount
       };
 
-      console.log(`[GoogleSheets Webhook] POSTing row ${i + 1}/${rows.length} (${row.serviceType}):`, payload);
+      console.log(`[GoogleSheets Webhook] POSTing row ${i + 1}/${rows.length} (${row.serviceType}, isEdit=${isEdit}):`, payload);
 
       await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
         method: 'POST',
@@ -402,8 +461,8 @@ export async function sendReservationToGoogleSheets(res: Reservation | any): Pro
       });
 
       if (i < rows.length - 1) {
-        // Small delay to allow Google Sheets script to safely lock and append row
-        await new Promise(r => setTimeout(r, 250));
+        // Small delay to allow Google Sheets script to safely lock and process row in order
+        await new Promise(r => setTimeout(r, 400));
       }
     }
 
