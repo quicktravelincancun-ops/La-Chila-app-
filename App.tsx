@@ -20,7 +20,9 @@ import {
   sendReservationToGoogleSheets,
   formatReservationToTSV,
   copyTextToClipboard,
-  getReservationRows
+  getReservationRows,
+  APPS_SCRIPT_REWRITE_CODE,
+  getGoogleSheetsWebhookUrl
 } from './utils';
 import { GoogleGenAI } from '@google/genai';
 import { extractReservationFieldsWithRegex, normalizeReservationData, getClientGeminiApiKey } from './geminiService';
@@ -69,6 +71,10 @@ const App: React.FC = () => {
     type: 'success' | 'error';
     message: string;
   } | null>(null);
+
+  const [showSheetsScriptModal, setShowSheetsScriptModal] = useState(false);
+  const [customWebhookUrl, setCustomWebhookUrl] = useState(() => getGoogleSheetsWebhookUrl());
+  const [copiedScript, setCopiedScript] = useState(false);
 
   const generateNewId = () => {
     const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -507,6 +513,27 @@ const App: React.FC = () => {
         cancelEdit();
       }
       showUIMessage(`🗑️ Reservación #${resToDelete.reservationNo} eliminada.`);
+    }
+  };
+
+  const handleCopyAppsScript = async () => {
+    const ok = await copyTextToClipboard(APPS_SCRIPT_REWRITE_CODE);
+    if (ok) {
+      setCopiedScript(true);
+      showUIMessage('✓ Código de Apps Script copiado al portapapeles');
+      setTimeout(() => setCopiedScript(false), 2500);
+    } else {
+      showUIMessage('⚠️ Error copiando código');
+    }
+  };
+
+  const handleSaveCustomWebhook = () => {
+    const clean = customWebhookUrl.trim();
+    if (clean.startsWith('https://script.google.com/')) {
+      localStorage.setItem('qt_sheets_webhook_url', clean);
+      showUIMessage('✓ URL del Webhook guardada exitosamente');
+    } else {
+      showUIMessage('⚠️ Ingresa una URL válida de Google Apps Script (https://script.google.com/...)');
     }
   };
 
@@ -1045,6 +1072,152 @@ ${rawText}
                 className="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-black uppercase text-xs transition-all"
               >
                 Ir al Sistema Principal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSheetsScriptModal && (
+        <div className="fixed inset-0 z-[450] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-3 sm:p-6 overflow-y-auto">
+          <div className="bg-white w-full max-w-3xl rounded-[32px] sm:rounded-[40px] shadow-2xl overflow-hidden my-auto animate-in zoom-in duration-200 flex flex-col max-h-[92vh]">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-emerald-800 to-teal-900 px-6 py-5 sm:p-6 text-white flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center text-emerald-300 text-lg">
+                  <i className="fas fa-file-code"></i>
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black uppercase tracking-wide">
+                    Reescritura Automática en Google Sheets
+                  </h3>
+                  <p className="text-[11px] text-emerald-200 font-medium">
+                    Actualiza la misma fila al editar sin duplicar registros
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowSheetsScriptModal(false)}
+                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 text-white transition-all cursor-pointer"
+                title="Cerrar"
+              >
+                <i className="fas fa-times text-xl"></i>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 sm:p-7 overflow-y-auto space-y-5 flex-1 bg-slate-50/50">
+              {/* Info Banner */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-emerald-950 text-xs leading-relaxed space-y-2">
+                <div className="flex items-center gap-2 font-black text-emerald-900 uppercase">
+                  <i className="fas fa-circle-check text-emerald-600 text-sm"></i>
+                  <span>¿Cómo funciona la reescritura en Google Sheets?</span>
+                </div>
+                <p>
+                  Cuando editas una reservación y presionas <strong>"GUARDAR CAMBIOS Y REESCRIBIR RESERVA"</strong>, el sistema busca en tu hoja de Google Sheets si ya existe el <strong>Folio</strong> y <strong>Tipo de Servicio (Llegada o Salida)</strong>. Si existe, <strong>reemplaza esa misma fila</strong> con los nuevos datos; si no existe, la inserta como nueva.
+                </p>
+                <div className="pt-2 flex flex-wrap gap-2">
+                  <a
+                    href={GOOGLE_SHEET_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 py-2 px-3.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-[11px] font-black uppercase transition-all shadow-sm"
+                  >
+                    <i className="fas fa-external-link-alt text-xs"></i>
+                    <span>Abrir Hoja de Google Sheets</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyAppsScript}
+                    className="inline-flex items-center gap-1.5 py-2 px-3.5 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-[11px] font-black uppercase transition-all cursor-pointer"
+                  >
+                    <i className={`fas ${copiedScript ? 'fa-check text-emerald-600' : 'fa-copy text-emerald-600'} text-xs`}></i>
+                    <span>{copiedScript ? '¡Código Copiado!' : 'Copiar Código de Apps Script'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Instructions steps */}
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3">
+                <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
+                  <i className="fas fa-list-ol text-blue-600"></i>
+                  Pasos para instalar o actualizar el script en tu Google Sheet:
+                </h4>
+                <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside pl-1 leading-relaxed">
+                  <li>Abre tu hoja de Google Sheets y en el menú superior selecciona <strong>Extensiones &gt; Apps Script</strong>.</li>
+                  <li>Reemplaza el contenido de <strong>Código.gs</strong> pegando el código de abajo.</li>
+                  <li>Haz clic en <strong>Implementar &gt; Administrar implementaciones</strong> (o Nueva implementación &gt; Tipo: <em>Aplicación web</em> &gt; Quién tiene acceso: <em>Cualquier usuario</em>).</li>
+                  <li>Copia la URL del Webhook resultante y pégala abajo si es diferente a la configurada por defecto.</li>
+                </ol>
+              </div>
+
+              {/* Code Box */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-black uppercase text-slate-700 tracking-wider">
+                    Código de Apps Script (Código.gs)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleCopyAppsScript}
+                    className="text-[11px] text-emerald-700 hover:text-emerald-800 font-bold uppercase flex items-center gap-1 cursor-pointer"
+                  >
+                    <i className="fas fa-copy"></i>
+                    <span>{copiedScript ? 'Copiado' : 'Copiar todo'}</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <pre className="bg-slate-900 text-slate-100 p-4 rounded-2xl text-[11px] font-mono overflow-x-auto max-h-56 leading-relaxed border border-slate-800">
+                    {APPS_SCRIPT_REWRITE_CODE}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Webhook URL config */}
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3">
+                <label className="block text-[11px] font-black uppercase text-slate-700 tracking-wider">
+                  URL del Webhook de Google Apps Script
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={customWebhookUrl}
+                    onChange={(e) => setCustomWebhookUrl(e.target.value)}
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                    className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveCustomWebhook}
+                    className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase transition-all shrink-0 cursor-pointer"
+                  >
+                    Guardar URL
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  Por defecto usa el webhook ya vinculado a tu hoja. Puedes modificarlo si realizas un nuevo despliegue.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 sm:p-5 bg-white border-t border-slate-100 flex items-center justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowSheetsScriptModal(false)}
+                className="py-2.5 px-5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black uppercase transition-all cursor-pointer"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyAppsScript}
+                className="py-2.5 px-5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-black uppercase transition-all shadow-md flex items-center gap-2 cursor-pointer"
+              >
+                <i className={`fas ${copiedScript ? 'fa-check' : 'fa-copy'}`}></i>
+                <span>{copiedScript ? '¡Copiado!' : 'Copiar Código'}</span>
               </button>
             </div>
           </div>
@@ -1616,6 +1789,18 @@ ${rawText}
                     </button>
                   </div>
 
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setShowSheetsScriptModal(true)}
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 py-1.5 px-3.5 rounded-xl border border-emerald-200/80 transition-all flex items-center gap-1.5 cursor-pointer"
+                      title="Ver y copiar el código de Google Apps Script para reescritura de reservas en Sheets"
+                    >
+                      <i className="fas fa-file-code text-xs text-emerald-600"></i>
+                      <span>Configurar Script de Google Sheets (Reescritura de Reservas)</span>
+                    </button>
+                  </div>
+
                   {/* 3. DRIVER COMMUNICATIONS: ENVIAR LLEGADA A CHOFER, ENVIAR SALIDA A CHOFER */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
                     <button 
@@ -1725,6 +1910,16 @@ ${rawText}
                       </button>
                     )}
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowSheetsScriptModal(true)}
+                    className="py-2.5 px-3.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-2xl text-[11px] font-black uppercase transition-all shadow-xs shrink-0 flex items-center gap-1.5 cursor-pointer"
+                    title="Ver o copiar el script de Google Sheets para reescritura automática"
+                  >
+                    <i className="fas fa-file-code text-xs text-emerald-600"></i>
+                    <span className="hidden sm:inline">Script Sheets</span>
+                  </button>
 
                   <button
                     type="button"

@@ -159,6 +159,90 @@ export function formatDateForLanguage(dateStr: string | null | undefined, lang: 
  */
 export const GOOGLE_SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxjCU_mXf5cF_jdFFOzXhRnE10h45onjqt8-0u6fpwCtNGlDatWhWWLWpLOTX9JjA1r/exec';
 
+/**
+ * Gets configured Google Sheets Webhook URL (supports user custom URL in localStorage)
+ */
+export function getGoogleSheetsWebhookUrl(): string {
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('qt_sheets_webhook_url');
+    if (custom && custom.trim().startsWith('https://script.google.com/')) {
+      return custom.trim();
+    }
+  }
+  return GOOGLE_SHEETS_WEBHOOK_URL;
+}
+
+/**
+ * Recommended Apps Script code for Google Sheets that handles both INSERT and REWRITE (UPDATE in-place)
+ */
+export const APPS_SCRIPT_REWRITE_CODE = `/**
+ * QUICK TRAVEL CANCÚN - WEBHOOK PARA GOOGLE SHEETS
+ * Permite GUARDAR y REESCRIBIR reservaciones automáticamente por folio y servicio.
+ */
+function doPost(e) {
+  try {
+    var contents = e.postData.contents;
+    var data = JSON.parse(contents);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getActiveSheet();
+    
+    var lastRow = sheet.getLastRow();
+    var codeToFind = String(data.code || "").trim();
+    var serviceToFind = String(data.serviceType || "").trim().toLowerCase();
+    
+    var rowToUpdate = -1;
+    
+    // Buscar si el folio y tipo de servicio ya existen en la hoja para REESCRIBIR
+    if (lastRow > 1 && codeToFind) {
+      var numRows = lastRow - 1;
+      var numCols = Math.max(sheet.getLastColumn(), 10);
+      var values = sheet.getRange(2, 1, numRows, numCols).getValues();
+      
+      for (var i = 0; i < values.length; i++) {
+        var existingCode = String(values[i][0] || "").trim();
+        var existingService = String(values[i][3] || "").trim().toLowerCase();
+        
+        // Coincidencia exacta de folio y servicio (ej. Llegada con Llegada, Salida con Salida)
+        if (existingCode === codeToFind) {
+          if (!serviceToFind || existingService === serviceToFind || (serviceToFind !== 'llegada' && serviceToFind !== 'salida')) {
+            rowToUpdate = i + 2; // Fila real en la hoja (empezó en fila 2)
+            break;
+          }
+        }
+      }
+    }
+    
+    // Columnas: Folio | Fecha | Hora | Servicio | Origen | Destino | Pax | Pasajero | Vuelo | Monto
+    var rowData = [
+      data.code || "",
+      data.date || "",
+      data.time || "",
+      data.serviceType || "",
+      data.origin || "",
+      data.destination || "",
+      data.pax || "",
+      data.passenger || "",
+      data.flight || "",
+      data.amount || ""
+    ];
+    
+    if (rowToUpdate > 0) {
+      // REESCRIBIR / SOBREESCRIBIR la fila existente
+      sheet.getRange(rowToUpdate, 1, 1, rowData.length).setValues([rowData]);
+      return ContentService.createTextOutput(JSON.stringify({ status: "success", action: "rewritten", row: rowToUpdate }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } else {
+      // INSERTAR nueva fila al final
+      sheet.appendRow(rowData);
+      return ContentService.createTextOutput(JSON.stringify({ status: "success", action: "inserted", row: sheet.getLastRow() }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+
 export interface SheetsRowData {
   code: string;
   date: string;
@@ -453,7 +537,8 @@ export async function sendReservationToGoogleSheets(
 
       console.log(`[GoogleSheets Webhook] POSTing row ${i + 1}/${rows.length} (${row.serviceType}, isEdit=${isEdit}):`, payload);
 
-      await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+      const targetWebhookUrl = getGoogleSheetsWebhookUrl();
+      await fetch(targetWebhookUrl, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
