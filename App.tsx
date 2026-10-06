@@ -19,7 +19,8 @@ import {
   formatDateToSpanishLong,
   sendReservationToGoogleSheets,
   formatReservationToTSV,
-  copyTextToClipboard
+  copyTextToClipboard,
+  getReservationRows
 } from './utils';
 import { GoogleGenAI } from '@google/genai';
 import { extractReservationFieldsWithRegex, normalizeReservationData, getClientGeminiApiKey } from './geminiService';
@@ -584,103 +585,6 @@ ${rawText}
     }
   };
 
-  const handleSyncToSheets = async () => {
-    let resolvedName = formData.name;
-    let resolvedPeopleCount = formData.peopleCount;
-
-    if (formData.serviceType === "Llegada y Salida") {
-      resolvedName = formData.arrivalName || formData.departureName || formData.name || '';
-      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCountDeparture || formData.peopleCount || 0;
-    } else if (formData.serviceType === "Solo Llegada") {
-      resolvedName = formData.arrivalName || formData.name || '';
-      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCount || 0;
-    } else {
-      // Solo Salida, Solo Traslado, Tour o Excursión, Circuito
-      resolvedName = formData.departureName || formData.name || '';
-      resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 0;
-    }
-
-    const data = currentVoucher || {
-        ...formData, 
-        name: resolvedName,
-        peopleCount: resolvedPeopleCount,
-        createdAt: new Date().toISOString()
-    };
-    
-    const formatDate = (dateStr: string) => {
-        if (!dateStr) return '-';
-        return toMexicanDateFormat(dateStr) || '-';
-    };
-
-    const rows: string[] = [];
-    const balanceStr = `MXN-Dep: $${data.depositMxn} Pay: $${data.toPayMxn} | USD-Dep: $${data.depositUsd} Pay: $${data.toPayUsd}`;
-
-    const addRow = (
-        date: string, 
-        time: string, 
-        service: string, 
-        origin: string, 
-        dest: string, 
-        pax: number, 
-        name: string, 
-        flight: string, 
-        bal: string,
-        idSuffix: string = ''
-    ) => {
-        rows.push([
-            data.reservationNo + idSuffix,
-            formatDate(date),
-            time || '-',
-            service,
-            origin || '-',
-            dest || '-',
-            pax,
-            name,
-            flight || '-',
-            bal,
-            "", // CHOFER
-            "Quick Travel", // COMPAÑÍA
-            "" // VENDEDOR
-        ].join('\t'));
-    };
-
-    if (data.serviceType === "Llegada y Salida") {
-        addRow(data.dateArrival, data.arrivalTime, "Llegada", data.origin, data.arrivalDestination, data.peopleCountArrival, data.arrivalName || data.name, `${data.airlineArrival || ''} ${data.flightNoArrival || ''}`.trim(), balanceStr);
-        addRow(data.dateDeparture, data.departureTimeHotel, "Salida", data.originDeparture, data.departureDestination, data.peopleCountDeparture, data.departureName || data.name, data.departureTimeFlight ? `Vuelo ${data.departureTimeFlight}` : '', "0");
-    } else if (data.serviceType === "Solo Llegada") {
-        addRow(data.dateArrival, data.arrivalTime, "Llegada", data.origin, data.arrivalDestination, data.peopleCountArrival, data.arrivalName || data.name, `${data.airlineArrival || ''} ${data.flightNoArrival || ''}`.trim(), balanceStr);
-    } else if (data.serviceType === "Solo Salida") {
-        addRow(data.dateDeparture, data.departureTimeHotel, "Salida", data.originDeparture, data.departureDestination, data.peopleCountDeparture, data.departureName || data.name, data.departureTimeFlight ? `Vuelo ${data.departureTimeFlight}` : '', balanceStr);
-    } else if (data.serviceType === "Solo Traslado") {
-        addRow(data.dateDeparture, data.departureTimeHotel, `Traslado (${data.transferSubtype})`, data.originDeparture, data.departureDestination, data.peopleCountDeparture, data.departureName || data.name, "", balanceStr);
-        if (data.transferSubtype === "Traslado Múltiple" && data.extraLegs) {
-            data.extraLegs.forEach((leg, i) => { addRow(leg.date, leg.startTime, "Traslado Extra", leg.origin, leg.destination, leg.pax, data.departureName || data.name, "", "0", `-L${i+1}`); });
-        }
-    } else if (data.serviceType === "Tour o Excursión") {
-        addRow(data.dateDeparture, data.departureTimeHotel, `Tour: ${data.tourName}`, data.originDeparture, "-", data.peopleCountDeparture, data.departureName || data.name, "", balanceStr);
-         if (data.extraTours) {
-            data.extraTours.forEach((tour, i) => { addRow(tour.dateDeparture, tour.departureTimeHotel, `Tour: ${tour.tourName}`, tour.originDeparture, "-", tour.peopleCountDeparture, data.departureName || data.name, "", "0", `-T${i+1}`); });
-        }
-    } else if (data.serviceType === "Circuito") {
-        addRow(data.dateDeparture, "-", `Circuito: ${data.unitType}`, data.originDeparture, "-", data.peopleCountDeparture, data.departureName || data.name, "", balanceStr);
-        if (data.circuitoLegs) {
-            data.circuitoLegs.forEach((leg, i) => { addRow(leg.date, leg.schedule, `Día ${i+1}: ${leg.placesToVisit}`, "-", "-", data.peopleCountDeparture, data.departureName || data.name, "", "0", `-C${i+1}`); });
-        }
-    }
-
-    const tsv = rows.join('\n');
-
-    try {
-      await navigator.clipboard.writeText(tsv);
-      setSyncing(true);
-      showUIMessage(`📋 Copiado! Pega (Ctrl+V) en la hoja.`);
-      setTimeout(() => { setSyncing(false); window.location.href = GOOGLE_SHEET_URL; }, 1000);
-    } catch (err) {
-      window.location.href = GOOGLE_SHEET_URL;
-      showUIMessage(`⚠️ No se pudo copiar. Abriendo hoja.`);
-    }
-  };
-
   const handlePrintVoucher = () => {
     if (typeof window !== 'undefined' && typeof window.print === 'function') {
       window.print();
@@ -756,7 +660,17 @@ ${rawText}
       createdAt: new Date().toISOString()
     } as Reservation;
 
-    const resToSend: Reservation = targetRes || (currentVoucher && currentVoucher.name ? currentVoucher : null) || currentFormDataRes;
+    const hasFormData = Boolean(
+      formData.name?.trim() || 
+      formData.arrivalName?.trim() || 
+      formData.departureName?.trim() || 
+      formData.arrivalDestination?.trim() ||
+      formData.originDeparture?.trim() ||
+      formData.arrivalTime || 
+      formData.departureTimeHotel
+    );
+
+    const resToSend: Reservation = targetRes || (hasFormData ? currentFormDataRes : (currentVoucher || currentFormDataRes));
 
     setSyncing(true);
     let success = false;
@@ -814,20 +728,31 @@ ${rawText}
       createdAt: new Date().toISOString()
     } as Reservation;
 
-    const resToBackup = (currentVoucher && currentVoucher.name) ? currentVoucher : currentFormDataRes;
+    const hasFormData = Boolean(
+      formData.name?.trim() || 
+      formData.arrivalName?.trim() || 
+      formData.departureName?.trim() || 
+      formData.arrivalDestination?.trim() ||
+      formData.originDeparture?.trim() ||
+      formData.arrivalTime || 
+      formData.departureTimeHotel
+    );
+
+    const resToBackup = hasFormData ? currentFormDataRes : (currentVoucher || currentFormDataRes);
 
     setSyncing(true);
 
     // a) Format current reservation data as TSV: Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount
+    // For Round Trip: Outputs BOTH rows (Row 1: Llegada, Row 2: Salida) separated by \n
     const tsvRow = formatReservationToTSV(resToBackup);
 
     // b) Copy that formatted row text to user's Clipboard automatically
     await copyTextToClipboard(tsvRow);
 
-    // c) Show alert: "✓ Ambas filas (Llegada y Salida) copiadas al portapapeles. Abriendo Sheets..." or single leg
-    const isRoundTrip = resToBackup.serviceType === "Llegada y Salida" || 
-      (resToBackup.dateArrival && resToBackup.dateDeparture && (resToBackup.arrivalTime || resToBackup.departureTimeHotel));
+    const rows = getReservationRows(resToBackup);
+    const isRoundTrip = rows.length > 1;
 
+    // c) Show alert: "✓ Ambas filas (Llegada y Salida) copiadas al portapapeles. Abriendo Sheets..." or single leg
     const alertMsg = isRoundTrip
       ? "✓ Ambas filas (Llegada y Salida) copiadas al portapapeles. Abriendo Sheets..."
       : "✓ Datos copiados al portapapeles. Abriendo Google Sheets para pegar.";
@@ -838,7 +763,7 @@ ${rawText}
       message: alertMsg
     });
 
-    // Also trigger background POST to Google Apps Script
+    // Also trigger background POST to Google Apps Script (posts both rows separately for Round Trips!)
     sendReservationToGoogleSheets(resToBackup).catch(err => console.warn(err));
 
     // d) Open Google Sheets URL in a new tab: https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit

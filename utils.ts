@@ -192,17 +192,30 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
   }
 
   const baseCode = String(res.code || res.reservationNo || res.id || '');
-  const isRoundTrip = res.serviceType === "Llegada y Salida" || 
-    (res.dateArrival && res.dateDeparture && (res.arrivalTime || res.departureTimeHotel));
+  const rawService = String(res.serviceType || '').trim();
+
+  // Robust Round-Trip detection (Llegada y Salida / Viaje Redondo)
+  const isRoundTrip = 
+    (/llegada/i.test(rawService) && /salida/i.test(rawService)) ||
+    rawService.toLowerCase().includes('redondo') ||
+    rawService.toLowerCase().includes('round') ||
+    Boolean(
+      (res.dateArrival || res.arrivalTime || res.flightNoArrival) && 
+      (res.dateDeparture || res.departureTimeHotel || res.departureTimeFlight) &&
+      !/solo llegada/i.test(rawService) && 
+      !/solo salida/i.test(rawService) &&
+      !/tour/i.test(rawService) &&
+      !/circuito/i.test(rawService)
+    );
 
   if (isRoundTrip) {
-    // 1. Arrival Leg (Llegada)
+    // 1. Arrival Leg (Llegada) - Service must ONLY be 'Llegada'
     const arrivalFlight = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ').trim() || res.flight || '';
     const arrivalOrigin = res.origin || 'Aeropuerto de Cancún';
     const arrivalDest = res.arrivalDestination || res.destination || '';
     const arrivalDate = toMexicanDateFormat(res.dateArrival || res.date) || '';
     const arrivalTime = res.arrivalTime || res.time || '';
-    const arrivalPassenger = res.arrivalName || res.name || res.passenger || '';
+    const arrivalPassenger = res.arrivalName || res.departureName || res.name || res.passenger || '';
     const arrivalPax = String(res.peopleCountArrival || res.peopleCount || res.pax || '1');
 
     const arrivalRow: SheetsRowData = {
@@ -218,7 +231,7 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
       amount: amountStr || '$0'
     };
 
-    // 2. Departure Leg (Salida)
+    // 2. Departure Leg (Salida) - Service must ONLY be 'Salida'
     const departureFlight = res.departureTimeFlight 
       ? (res.departureTimeFlight.toLowerCase().includes('vuelo') ? res.departureTimeFlight : `Vuelo ${res.departureTimeFlight}`) 
       : (res.flight || '');
@@ -226,7 +239,7 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
     const departureDest = res.departureDestination || 'Aeropuerto de Cancún';
     const departureDate = toMexicanDateFormat(res.dateDeparture || res.date) || '';
     const departureTime = res.departureTimeHotel || (res.departureTimeFlight ? `Pickup: ${res.departureTimeFlight}` : '') || '';
-    const departurePassenger = res.departureName || res.name || res.passenger || '';
+    const departurePassenger = res.departureName || res.arrivalName || res.name || res.passenger || '';
     const departurePax = String(res.peopleCountDeparture || res.peopleCount || res.pax || '1');
 
     const departureRow: SheetsRowData = {
@@ -250,7 +263,7 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
     (res.departureTimeFlight ? `Vuelo ${res.departureTimeFlight}` : '') ||
     (res.flight || '');
 
-  const isArrival = res.serviceType === "Solo Llegada";
+  const isArrival = /llegada/i.test(rawService);
   const defaultOrigin = isArrival ? 'Aeropuerto de Cancún' : '';
   const origin = res.origin || res.originDeparture || defaultOrigin;
   const destination = res.destination || res.arrivalDestination || res.departureDestination || '';
@@ -262,15 +275,27 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
     ? String(res.pax)
     : (res.peopleCount ? String(res.peopleCount) : (isArrival ? String(res.peopleCountArrival || '1') : String(res.peopleCountDeparture || '1')));
 
-  const service = res.serviceType 
-    ? (res.serviceType + (res.transferSubtype ? ` (${res.transferSubtype})` : (res.tourName ? `: ${res.tourName}` : ''))) 
-    : '';
+  // Clean Service Name: Never mix "Traslado Sencillo" unless it's genuinely a Traslado service
+  let cleanServiceName = 'Llegada';
+  if (/llegada/i.test(rawService)) {
+    cleanServiceName = 'Llegada';
+  } else if (/salida/i.test(rawService)) {
+    cleanServiceName = 'Salida';
+  } else if (/traslado/i.test(rawService)) {
+    cleanServiceName = res.transferSubtype ? `Traslado (${res.transferSubtype})` : 'Traslado';
+  } else if (/tour/i.test(rawService)) {
+    cleanServiceName = res.tourName ? `Tour: ${res.tourName}` : 'Tour';
+  } else if (/circuito/i.test(rawService)) {
+    cleanServiceName = 'Circuito';
+  } else {
+    cleanServiceName = rawService || 'Llegada';
+  }
 
   const singleRow: SheetsRowData = {
     code: baseCode,
     date: dateFormatted,
     time: timeFormatted,
-    serviceType: service,
+    serviceType: cleanServiceName,
     origin: origin || '',
     destination: destination || '',
     pax: paxValue || '',
@@ -343,29 +368,44 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
 
 /**
  * Sends reservation payload to Google Sheets webhook in background (POST request).
- * Sends rows: [arrivalData, departureData] for Round Trips (or [singleData]),
- * as well as top-level fields for total compatibility.
+ * For Round Trips (Llegada y Salida), executes separate POST requests for each row (Row 1: Llegada, Row 2: Salida)
+ * so that Google Apps Script registers both rows separately, and includes rows array for batch scripts.
  * Uses text/plain;charset=utf-8 and no-cors to prevent browser CORS preflight blocking with Google Apps Script.
  */
 export async function sendReservationToGoogleSheets(res: Reservation | any): Promise<boolean> {
   try {
     const rows = getReservationRows(res);
-    const primaryRow = rows[0];
 
-    const payload = {
-      ...primaryRow,
-      serviceType: String(res.serviceType || primaryRow.serviceType),
-      rows: rows
-    };
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const payload = {
+        code: row.code,
+        date: row.date,
+        time: row.time,
+        serviceType: row.serviceType,
+        origin: row.origin,
+        destination: row.destination,
+        pax: row.pax,
+        passenger: row.passenger,
+        flight: row.flight,
+        amount: row.amount,
+        rows: rows
+      };
 
-    console.log('[GoogleSheets Webhook] POSTing clean JSON payload with rows array:', payload);
+      console.log(`[GoogleSheets Webhook] POSTing row ${i + 1}/${rows.length} (${row.serviceType}):`, payload);
 
-    await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
-    });
+      await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+
+      if (i < rows.length - 1) {
+        // Small delay to allow Google Sheets script to safely lock and append row
+        await new Promise(r => setTimeout(r, 250));
+      }
+    }
 
     return true;
   } catch (err) {
