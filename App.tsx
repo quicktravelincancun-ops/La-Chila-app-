@@ -26,7 +26,7 @@ import { GoogleGenAI } from '@google/genai';
 import { extractReservationFieldsWithRegex, normalizeReservationData, getClientGeminiApiKey } from './geminiService';
 import VoucherPreview from './components/VoucherPreview';
 
-const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit";
+const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit?usp=drivesdk";
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'create' | 'history'>('create');
