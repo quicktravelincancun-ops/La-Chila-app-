@@ -59,6 +59,13 @@ const App: React.FC = () => {
     timestamp: string;
   } | null>(null);
 
+  const [processingMaster, setProcessingMaster] = useState(false);
+  const [sheetsFeedback, setSheetsFeedback] = useState<{
+    show: boolean;
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
   const generateNewId = () => {
     const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     let randomPart = '';
@@ -351,7 +358,7 @@ const App: React.FC = () => {
     setTimeout(() => setSuccessMessage(null), 5000);
   };
 
-  const handleSave = (andExportPdf: boolean = false) => {
+  const handleProcessAndGenerateVoucher = async () => {
     let resolvedName = formData.name;
     let resolvedPeopleCount = formData.peopleCount;
 
@@ -400,32 +407,56 @@ const App: React.FC = () => {
       updated = [newRes, ...reservations];
     }
 
-    // Automatically trigger Google Sheets webhook logging
-    sendReservationToGoogleSheets(savedRes);
-    showUIMessage("¡Servicio guardado con éxito en Google Sheets!");
+    setProcessingMaster(true);
 
+    // a) Save reservation into app local memory
     setReservations(updated);
     localStorage.setItem('qt_reservations', JSON.stringify(updated));
     localStorage.removeItem('qt_draft_voucher');
     setLastAutoSaved(null);
     setCurrentVoucher(savedRes);
-    
+
+    // b) POST payload to Google Apps Script
+    let sheetsSuccess = false;
+    try {
+      sheetsSuccess = await sendReservationToGoogleSheets(savedRes);
+    } catch (err) {
+      console.warn("Error enviando a Google Sheets:", err);
+      sheetsSuccess = false;
+    }
+
+    // c) Show explicit confirmation modal/toast
+    if (sheetsSuccess) {
+      setSheetsFeedback({
+        show: true,
+        type: 'success',
+        message: '✓ Guardado con éxito en Google Sheets'
+      });
+      showUIMessage("✓ Guardado con éxito en Google Sheets");
+    } else {
+      setSheetsFeedback({
+        show: true,
+        type: 'error',
+        message: '⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual'
+      });
+      showUIMessage("⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual");
+    }
+
+    // d) Open Voucher Preview
+    setShowVoucherModal({ show: true, reservation: savedRes });
+
+    // e) Automatically reset/clear form fields after processing
     setEditingId(null);
     setFormData({
       ...initialFormState,
       reservationNo: generateNewId()
     });
 
-    if (andExportPdf) {
-      setShowVoucherModal({ show: true, reservation: savedRes });
-    } else {
-      setTimeout(() => {
-        const previewEl = document.getElementById('voucher-preview-section');
-        if (previewEl) {
-          previewEl.scrollIntoView({ behavior: 'smooth' });
-        }
-      }, 150);
-    }
+    setProcessingMaster(false);
+  };
+
+  const handleSave = (andExportPdf: boolean = false) => {
+    handleProcessAndGenerateVoucher();
   };
 
   const cancelEdit = () => {
@@ -723,18 +754,72 @@ ${rawText}
       createdAt: new Date().toISOString()
     } as Reservation;
 
-    const resToSend: Reservation = targetRes || currentFormDataRes;
+    const resToSend: Reservation = targetRes || (currentVoucher && currentVoucher.name ? currentVoucher : null) || currentFormDataRes;
 
     setSyncing(true);
+    let success = false;
     try {
-      await sendReservationToGoogleSheets(resToSend);
-      showUIMessage("¡Servicio guardado con éxito en Google Sheets!");
+      success = await sendReservationToGoogleSheets(resToSend);
+      if (success) {
+        setSheetsFeedback({
+          show: true,
+          type: 'success',
+          message: '✓ Guardado con éxito en Google Sheets'
+        });
+        showUIMessage("✓ Guardado con éxito en Google Sheets");
+      } else {
+        setSheetsFeedback({
+          show: true,
+          type: 'error',
+          message: '⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual'
+        });
+        showUIMessage("⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual");
+      }
     } catch (err) {
       console.warn("Error guardando en Google Sheets:", err);
-      showUIMessage("¡Servicio guardado con éxito en Google Sheets!");
+      setSheetsFeedback({
+        show: true,
+        type: 'error',
+        message: '⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual'
+      });
+      showUIMessage("⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual");
     } finally {
       setSyncing(false);
     }
+    return success;
+  };
+
+  const handleManualBackup = async () => {
+    const resToBackup = (currentVoucher && currentVoucher.name) ? currentVoucher : {
+      ...formData,
+      id: editingId ? String(editingId) : (formData.reservationNo || generateNewId()),
+      createdAt: new Date().toISOString()
+    } as Reservation;
+
+    setSyncing(true);
+    let ok = false;
+    try {
+      ok = await sendReservationToGoogleSheets(resToBackup);
+    } catch {
+      ok = false;
+    }
+
+    if (ok) {
+      setSheetsFeedback({
+        show: true,
+        type: 'success',
+        message: '✓ Guardado con éxito en Google Sheets (Respaldo Manual)'
+      });
+      showUIMessage("✓ Guardado con éxito en Google Sheets");
+    } else {
+      await handleSyncToSheets();
+      setSheetsFeedback({
+        show: true,
+        type: 'error',
+        message: '⚠️ Error de conexión con Sheets. Se copió formato al portapapeles para pegar en la hoja.'
+      });
+    }
+    setSyncing(false);
   };
 
   const handleSendToDriver = (legType: 'arrival' | 'departure', targetRes?: Reservation | null) => {
@@ -752,13 +837,28 @@ ${rawText}
       resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 0;
     }
 
-    const resToSend: Reservation = targetRes || currentVoucher || {
-      ...formData,
-      id: editingId ? String(editingId) : (formData.reservationNo || generateNewId()),
-      name: resolvedName,
-      peopleCount: resolvedPeopleCount,
-      createdAt: new Date().toISOString()
-    } as Reservation;
+    let resToSend: Reservation;
+    if (targetRes) {
+      resToSend = targetRes;
+    } else if (resolvedName && resolvedName.trim().length > 0) {
+      resToSend = {
+        ...formData,
+        id: editingId ? String(editingId) : (formData.reservationNo || generateNewId()),
+        name: resolvedName,
+        peopleCount: resolvedPeopleCount,
+        createdAt: new Date().toISOString()
+      } as Reservation;
+    } else if (currentVoucher && currentVoucher.name) {
+      resToSend = currentVoucher;
+    } else {
+      resToSend = {
+        ...formData,
+        id: editingId ? String(editingId) : (formData.reservationNo || generateNewId()),
+        name: resolvedName,
+        peopleCount: resolvedPeopleCount,
+        createdAt: new Date().toISOString()
+      } as Reservation;
+    }
 
     const message = legType === 'arrival'
       ? generateDriverArrivalWhatsAppMessage(resToSend)
@@ -823,13 +923,41 @@ ${rawText}
                   <p className="text-[11px] text-blue-200 font-medium">#{showVoucherModal.reservation.reservationNo} - {showVoucherModal.reservation.name}</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setShowVoucherModal({ show: false, reservation: null })} 
-                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 text-white transition-all"
-                title="Cerrar"
+              <div className="flex items-center gap-2">
+                <a
+                  href={GOOGLE_SHEET_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hidden sm:inline-flex items-center gap-1.5 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase transition-all shadow-sm cursor-pointer"
+                  title="Abrir hoja de Google Sheets en nueva pestaña"
+                >
+                  <i className="fas fa-external-link-alt text-[9px]"></i>
+                  <span>VER HOJA EN GOOGLE SHEETS</span>
+                </a>
+                <button 
+                  onClick={() => setShowVoucherModal({ show: false, reservation: null })} 
+                  className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 text-white transition-all cursor-pointer"
+                  title="Cerrar"
+                >
+                  <i className="fas fa-times text-xl"></i>
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-emerald-50 border-b border-emerald-100 px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs no-print shrink-0">
+              <div className="flex items-center gap-2 text-emerald-800 font-bold">
+                <i className="fas fa-check-circle text-emerald-600 text-sm"></i>
+                <span>✓ Guardado con éxito en Google Sheets</span>
+              </div>
+              <a
+                href={GOOGLE_SHEET_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex sm:hidden items-center gap-1 py-1 px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer"
               >
-                <i className="fas fa-times text-xl"></i>
-              </button>
+                <i className="fas fa-external-link-alt text-[8px]"></i>
+                <span>VER HOJA</span>
+              </a>
             </div>
             
             <div className="p-3 sm:p-6 md:p-8 overflow-y-auto bg-gray-50 flex-1">
@@ -925,6 +1053,72 @@ ${rawText}
                 className="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-black uppercase text-xs transition-all"
               >
                 Ir al Sistema Principal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sheetsFeedback && sheetsFeedback.show && (
+        <div className="fixed top-5 right-5 z-[500] max-w-md w-[calc(100%-2.5rem)] animate-in slide-in-from-top-4 fade-in duration-300">
+          <div className={`p-4 sm:p-5 rounded-2xl shadow-2xl border flex flex-col gap-3 backdrop-blur-md ${
+            sheetsFeedback.type === 'success' 
+              ? 'bg-slate-900/95 border-emerald-500 text-white' 
+              : 'bg-slate-900/95 border-amber-500 text-white'
+          }`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                  sheetsFeedback.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'
+                }`}>
+                  <i className={`fas ${sheetsFeedback.type === 'success' ? 'fa-check' : 'fa-exclamation-triangle'} text-sm`}></i>
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-200">
+                    Sincronización con Google Sheets
+                  </h4>
+                  <p className="text-xs font-bold mt-0.5 text-slate-100">
+                    {sheetsFeedback.message}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSheetsFeedback(null)} 
+                className="text-slate-400 hover:text-white transition-colors p-1 cursor-pointer"
+                title="Cerrar notificación"
+              >
+                <i className="fas fa-times text-xs"></i>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1 border-t border-slate-800">
+              {sheetsFeedback.type === 'success' ? (
+                <a
+                  href={GOOGLE_SHEET_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white text-center rounded-xl text-[11px] font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
+                >
+                  <i className="fas fa-external-link-alt text-[10px]"></i>
+                  <span>VER HOJA EN GOOGLE SHEETS</span>
+                </a>
+              ) : (
+                <button
+                  onClick={() => {
+                    setSheetsFeedback(null);
+                    handleManualBackup();
+                  }}
+                  className="flex-1 py-2 px-3 bg-amber-600 hover:bg-amber-500 text-white text-center rounded-xl text-[11px] font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
+                >
+                  <i className="fas fa-sync-alt text-[10px]"></i>
+                  <span>RESPALDO MANUAL (SHEETS)</span>
+                </button>
+              )}
+              <button
+                onClick={() => setSheetsFeedback(null)}
+                className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-center rounded-xl text-[11px] font-bold uppercase transition-all cursor-pointer"
+              >
+                Cerrar
               </button>
             </div>
           </div>
@@ -1359,41 +1553,45 @@ ${rawText}
                 </div>
 
                 <div className="mt-12 pt-8 border-t border-gray-100 space-y-4">
-                  {/* Primary Operations: GUARDAR RESERVA, GUARDAR EN SHEETS, GENERAR VOUCHER */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                  {/* 1. PRIMARY UNIFIED MASTER ACTION BUTTON */}
+                  <div>
                     <button 
                       type="button"
-                      onClick={() => handleSave(false)} 
-                      className="py-4 px-5 bg-[#0a305e] hover:bg-[#072142] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-xl hover:scale-[1.01] active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer"
-                      title="Guardar reserva localmente en la aplicación"
+                      onClick={handleProcessAndGenerateVoucher} 
+                      disabled={processingMaster}
+                      className="w-full py-5 px-6 bg-gradient-to-r from-[#0a305e] via-blue-900 to-emerald-700 hover:from-blue-950 hover:to-emerald-800 text-white rounded-2xl font-black uppercase text-xs sm:text-sm tracking-wide shadow-xl hover:shadow-2xl hover:scale-[1.006] active:scale-[0.99] transition-all flex items-center justify-center gap-3 cursor-pointer disabled:opacity-60"
+                      title="Guardar en memoria, registrar en Google Sheets y abrir voucher de confirmación"
                     >
-                      <i className="fas fa-save text-blue-300 text-sm"></i>
-                      <span>GUARDAR RESERVA</span>
-                    </button>
-
-                    <button 
-                      type="button"
-                      onClick={() => handleSaveToSheets()} 
-                      disabled={syncing}
-                      className="py-4 px-5 bg-[#107c41] hover:bg-[#0c6233] text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-xl hover:scale-[1.01] active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 disabled:opacity-60 cursor-pointer"
-                      title="Guardar y registrar servicio directamente en Google Sheets vía Apps Script"
-                    >
-                      <i className={`fas ${syncing ? 'fa-spinner fa-spin' : 'fa-cloud-upload-alt'} text-green-200 text-sm`}></i>
-                      <span>{syncing ? 'GUARDANDO...' : 'GUARDAR EN SHEETS'}</span>
-                    </button>
-
-                    <button 
-                      type="button"
-                      onClick={() => handleSave(true)} 
-                      className="py-4 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black uppercase text-xs shadow-md hover:shadow-xl hover:scale-[1.01] active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer"
-                      title="Generar vista previa del voucher de confirmación"
-                    >
-                      <i className="fas fa-file-invoice text-emerald-200 text-sm"></i>
-                      <span>GENERAR VOUCHER</span>
+                      <i className={`fas ${processingMaster ? 'fa-spinner fa-spin text-emerald-300' : 'fa-check-circle text-emerald-400'} text-base sm:text-lg`}></i>
+                      <span>{processingMaster ? 'PROCESANDO Y SINCRONIZANDO...' : (editingId ? 'ACTUALIZAR RESERVA Y GENERAR VOUCHER' : 'PROCESAR RESERVA Y GENERAR VOUCHER')}</span>
                     </button>
                   </div>
 
-                  {/* Driver Communications: ENVIAR LLEGADA A CHOFER, ENVIAR SALIDA A CHOFER */}
+                  {/* 2. SECONDARY BACKUP & CLEANUP */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <button 
+                      type="button"
+                      onClick={handleManualBackup} 
+                      disabled={syncing}
+                      className="py-3.5 px-5 bg-white hover:bg-emerald-50 text-emerald-800 border-2 border-emerald-200 hover:border-emerald-400 rounded-2xl font-black uppercase text-xs shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                      title="Guardar o respaldar directamente en la hoja de Google Sheets vía webhook"
+                    >
+                      <i className={`fas ${syncing ? 'fa-spinner fa-spin text-emerald-600' : 'fa-cloud-upload-alt text-emerald-600'}`}></i>
+                      <span>{syncing ? 'RESPALDANDO...' : 'RESPALDO MANUAL (SHEETS)'}</span>
+                    </button>
+
+                    <button 
+                      type="button"
+                      onClick={resetForm} 
+                      className="py-3.5 px-5 bg-white hover:bg-rose-50 text-slate-600 hover:text-rose-700 border-2 border-slate-200 hover:border-rose-300 rounded-2xl font-black uppercase text-xs shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      title="Limpiar todos los datos del formulario e iniciar nueva reserva"
+                    >
+                      <i className="fas fa-trash-alt text-slate-400 hover:text-rose-500"></i>
+                      <span>LIMPIAR FORMULARIO</span>
+                    </button>
+                  </div>
+
+                  {/* 3. DRIVER COMMUNICATIONS: ENVIAR LLEGADA A CHOFER, ENVIAR SALIDA A CHOFER */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
                     <button 
                       type="button"
@@ -1512,10 +1710,11 @@ ${rawText}
                             )}
                             <button 
                               onClick={() => handleEdit(res)} 
-                              className="w-8 h-8 bg-orange-50 text-orange-500 rounded-xl hover:bg-orange-500 hover:text-white transition-all flex items-center justify-center"
-                              title="Editar"
+                              className="px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-500 hover:text-white rounded-xl text-[9px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer shadow-sm"
+                              title="Editar reserva y recargarla en el formulario"
                             >
                               <i className="fas fa-edit text-xs"></i>
+                              <span>Editar</span>
                             </button>
                           </div>
                         </td>
