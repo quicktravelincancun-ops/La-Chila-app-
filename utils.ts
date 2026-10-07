@@ -519,10 +519,10 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
     // 1. Arrival Leg (Llegada) - Service must ONLY be 'Llegada'
     const arrivalFlight = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ').trim() || res.flight || '';
     const arrivalOrigin = res.origin || 'Aeropuerto de Cancún';
-    const arrivalDest = res.arrivalDestination || res.destination || '';
-    const arrivalDate = toMexicanDateFormat(res.dateArrival || res.date) || '';
+    const arrivalDest = res.arrivalDestination || res.destination || res.originDeparture || 'Hotel / Destino';
+    const arrivalDate = toMexicanDateFormat(res.dateArrival || res.date || res.dateDeparture) || '';
     const arrivalTime = res.arrivalTime || res.time || '';
-    const arrivalPassenger = res.arrivalName || res.departureName || res.name || res.passenger || '';
+    const arrivalPassenger = res.arrivalName || res.name || res.passenger || res.departureName || '';
     const arrivalPax = String(res.peopleCountArrival || res.peopleCount || res.pax || '1');
 
     const arrivalRow: SheetsRowData = {
@@ -545,11 +545,11 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
     const departureFlight = res.departureTimeFlight 
       ? (res.departureTimeFlight.toLowerCase().includes('vuelo') ? res.departureTimeFlight : `Vuelo ${res.departureTimeFlight}`) 
       : (res.flight || '');
-    const departureOrigin = res.originDeparture || res.arrivalDestination || res.destination || '';
+    const departureOrigin = res.originDeparture || res.arrivalDestination || res.destination || 'Hotel / Destino';
     const departureDest = res.departureDestination || 'Aeropuerto de Cancún';
-    const departureDate = toMexicanDateFormat(res.dateDeparture || res.date) || '';
+    const departureDate = toMexicanDateFormat(res.dateDeparture || res.date || res.dateArrival) || '';
     const departureTime = res.departureTimeHotel || (res.departureTimeFlight ? `Pickup: ${res.departureTimeFlight}` : '') || '';
-    const departurePassenger = res.departureName || res.arrivalName || res.name || res.passenger || '';
+    const departurePassenger = res.departureName || res.name || res.passenger || res.arrivalName || '';
     const departurePax = String(res.peopleCountDeparture || res.peopleCount || res.pax || '1');
 
     const departureRow: SheetsRowData = {
@@ -630,19 +630,21 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
  */
 export function formatReservationToTSV(res: Reservation | any): string {
   const rows = getReservationRows(res);
+  const cleanField = (val: any) => String(val ?? '').replace(/[\r\n\t]+/g, ' ').trim();
+
   return rows.map(r => [
-    r.code,
-    r.date,
-    r.time,
-    r.serviceType,
-    r.origin,
-    r.destination,
-    r.pax,
-    r.passenger,
-    r.flight,
-    r.amount,
-    r.driver || '',
-    r.rep || res.rep || r.company || r.agency || ''
+    cleanField(r.code),
+    cleanField(r.date),
+    cleanField(r.time),
+    cleanField(r.serviceType),
+    cleanField(r.origin),
+    cleanField(r.destination),
+    cleanField(r.pax),
+    cleanField(r.passenger),
+    cleanField(r.flight),
+    cleanField(r.amount),
+    cleanField(r.driver || ''),
+    cleanField(r.rep || res.rep || r.company || r.agency || '')
   ].join('\t')).join('\n');
 }
 

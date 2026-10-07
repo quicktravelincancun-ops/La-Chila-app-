@@ -395,20 +395,30 @@ const App: React.FC = () => {
 
       if (formData.serviceType === "Llegada y Salida") {
         resolvedName = formData.arrivalName || formData.departureName || formData.name || '';
-        resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCountDeparture || formData.peopleCount || 0;
+        resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCountDeparture || formData.peopleCount || 1;
       } else if (formData.serviceType === "Solo Llegada") {
         resolvedName = formData.arrivalName || formData.name || '';
-        resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCount || 0;
+        resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCount || 1;
       } else {
         // Solo Salida, Solo Traslado, Tour o Excursión, Circuito
         resolvedName = formData.departureName || formData.name || '';
-        resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 0;
+        resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 1;
       }
 
-      const finalData = { 
+      const finalData: any = { 
         ...formData, 
         name: resolvedName,
-        peopleCount: resolvedPeopleCount
+        peopleCount: resolvedPeopleCount,
+        arrivalName: formData.arrivalName || resolvedName,
+        departureName: formData.departureName || resolvedName,
+        origin: formData.origin || 'Aeropuerto de Cancún',
+        arrivalDestination: formData.arrivalDestination || formData.destination || '',
+        originDeparture: formData.originDeparture || formData.arrivalDestination || formData.destination || '',
+        departureDestination: formData.departureDestination || 'Aeropuerto de Cancún',
+        peopleCountArrival: Number(formData.peopleCountArrival) || Number(resolvedPeopleCount) || 1,
+        peopleCountDeparture: Number(formData.peopleCountDeparture) || Number(resolvedPeopleCount) || 1,
+        dateArrival: formData.dateArrival || formData.date,
+        dateDeparture: formData.dateDeparture || formData.date || formData.dateArrival,
       };
 
       let updated: Reservation[];
@@ -455,7 +465,15 @@ const App: React.FC = () => {
       setLastAutoSaved(null);
       setCurrentVoucher(savedRes);
 
-      // b) POST payload to Google Apps Script (con flag isEditing para reescribir/actualizar)
+      // Copiar preventivamente ambos tramos al portapapeles
+      try {
+        const tsv = formatReservationToTSV(savedRes);
+        await copyTextToClipboard(tsv);
+      } catch (cpErr) {
+        console.warn("Clipboard copy in voucher processing:", cpErr);
+      }
+
+      // b) POST payload to Google Apps Script (para viaje redondo procesa y envía AMBOS tramos: 2 filas)
       let sheetsSuccess = false;
       try {
         sheetsSuccess = await sendReservationToGoogleSheets(savedRes, isEditing);
@@ -464,12 +482,19 @@ const App: React.FC = () => {
         sheetsSuccess = false;
       }
 
-      // c) Show explicit confirmation modal/toast
+      // c) Feedback explícito mostrando confirmación de filas y hoja correspondiente
       const targetSheetName = getTargetSheetNameForDate(savedRes.dateArrival || savedRes.dateDeparture || (savedRes as any).date);
       const sheetDetail = targetSheetName ? ` (Hoja: ${targetSheetName})` : '';
-      const successFeedbackMsg = isEditing
-        ? `✓ Reserva reescrita y actualizada con éxito en Google Sheets${sheetDetail}`
-        : `✓ Guardado con éxito en Google Sheets${sheetDetail}`;
+      const rows = getReservationRows(savedRes);
+      const isRoundTrip = rows.length > 1;
+
+      const successFeedbackMsg = isRoundTrip
+        ? (isEditing
+            ? `✓ Ambos tramos (Llegada y Salida) actualizados con éxito en Google Sheets${sheetDetail}`
+            : `✓ Ambos tramos (Llegada y Salida) guardados con éxito en Google Sheets (2 filas)${sheetDetail}`)
+        : (isEditing
+            ? `✓ Reserva reescrita y actualizada con éxito en Google Sheets${sheetDetail}`
+            : `✓ Guardado con éxito en Google Sheets${sheetDetail}`);
 
       if (sheetsSuccess) {
         setSheetsFeedback({
@@ -795,19 +820,19 @@ ${rawText}
     return success;
   };
 
-  const handleManualBackup = async () => {
+  const handleManualBackup = async (targetRes?: Reservation | null) => {
     let resolvedName = formData.name;
     let resolvedPeopleCount = formData.peopleCount;
 
     if (formData.serviceType === "Llegada y Salida") {
       resolvedName = formData.arrivalName || formData.departureName || formData.name || '';
-      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCountDeparture || formData.peopleCount || 0;
+      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCountDeparture || formData.peopleCount || 1;
     } else if (formData.serviceType === "Solo Llegada") {
       resolvedName = formData.arrivalName || formData.name || '';
-      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCount || 0;
+      resolvedPeopleCount = formData.peopleCountArrival || formData.peopleCount || 1;
     } else {
       resolvedName = formData.departureName || formData.name || '';
-      resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 0;
+      resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 1;
     }
 
     const currentFormDataRes: Reservation = {
@@ -815,6 +840,16 @@ ${rawText}
       id: editingId ? String(editingId) : (formData.reservationNo || generateNewId()),
       name: resolvedName,
       peopleCount: resolvedPeopleCount,
+      arrivalName: formData.arrivalName || resolvedName,
+      departureName: formData.departureName || resolvedName,
+      peopleCountArrival: Number(formData.peopleCountArrival) || Number(resolvedPeopleCount) || 1,
+      peopleCountDeparture: Number(formData.peopleCountDeparture) || Number(resolvedPeopleCount) || 1,
+      origin: formData.origin || 'Aeropuerto de Cancún',
+      arrivalDestination: formData.arrivalDestination || formData.destination || '',
+      originDeparture: formData.originDeparture || formData.arrivalDestination || formData.destination || '',
+      departureDestination: formData.departureDestination || 'Aeropuerto de Cancún',
+      dateArrival: formData.dateArrival || formData.date,
+      dateDeparture: formData.dateDeparture || formData.date || formData.dateArrival,
       createdAt: new Date().toISOString()
     } as Reservation;
 
@@ -828,24 +863,32 @@ ${rawText}
       formData.departureTimeHotel
     );
 
-    const resToBackup = hasFormData ? currentFormDataRes : (currentVoucher || currentFormDataRes);
+    const resToBackup = targetRes || (hasFormData ? currentFormDataRes : (currentVoucher || currentFormDataRes));
 
     setSyncing(true);
 
-    // a) Format current reservation data as TSV: Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount
-    // For Round Trip: Outputs BOTH rows (Row 1: Llegada, Row 2: Salida) separated by \n
-    const tsvRow = formatReservationToTSV(resToBackup);
-
-    // b) Copy that formatted row text to user's Clipboard automatically
-    await copyTextToClipboard(tsvRow);
-
+    // 1. Obtener ambos tramos si es viaje redondo (Llegada y Salida)
     const rows = getReservationRows(resToBackup);
     const isRoundTrip = rows.length > 1;
 
-    // c) Show alert: "✓ Ambas filas (Llegada y Salida) copiadas al portapapeles. Abriendo Sheets..." or single leg
+    // 2. Formatear ambos tramos en TSV separados por salto de línea (\n)
+    // Para viaje redondo: Fila 1 (Llegada) \n Fila 2 (Salida)
+    const tsvRow = formatReservationToTSV(resToBackup);
+
+    // 3. Copiar ambos tramos directamente al portapapeles del sistema
+    await copyTextToClipboard(tsvRow);
+
+    // 4. Enviar y procesar también a Google Sheets vía webhook en segundo plano (ambos tramos)
+    try {
+      sendReservationToGoogleSheets(resToBackup, Boolean(editingId));
+    } catch (e) {
+      console.warn("Background webhook sync error:", e);
+    }
+
+    // 5. Retroalimentación clara al usuario
     const alertMsg = isRoundTrip
-      ? "✓ Ambas filas (Llegada y Salida) copiadas al portapapeles. Abriendo Sheets..."
-      : "✓ Datos copiados al portapapeles. Abriendo Google Sheets para pegar.";
+      ? "✓ Ambas filas (Llegada y Salida) copiadas al portapapeles. Abriendo Google Sheets..."
+      : "✓ Fila copiada al portapapeles. Abriendo Google Sheets para pegar.";
     showUIMessage(alertMsg);
     setSheetsFeedback({
       show: true,
@@ -853,15 +896,28 @@ ${rawText}
       message: alertMsg
     });
 
-    // d) Open Google Sheets URL in a new tab: https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit
+    // 6. Abrir la URL del documento de Google Sheets
     setTimeout(() => {
       setSyncing(false);
-      if (isAndroidWebView()) {
-        openInSystemBrowser(GOOGLE_SHEET_URL);
-      } else {
-        window.open(GOOGLE_SHEET_URL, '_blank', 'noopener,noreferrer');
+      try {
+        if (isAndroidWebView()) {
+          openInSystemBrowser(GOOGLE_SHEET_URL);
+        } else {
+          const win = window.open(GOOGLE_SHEET_URL, '_blank', 'noopener,noreferrer');
+          if (!win) {
+            const a = document.createElement('a');
+            a.href = GOOGLE_SHEET_URL;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          }
+        }
+      } catch (err) {
+        console.warn("Error abriendo Google Sheets:", err);
       }
-    }, 350);
+    }, 150);
   };
 
   const handleSendToDriver = (legType: 'arrival' | 'departure', targetRes?: Reservation | null) => {
