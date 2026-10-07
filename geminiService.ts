@@ -448,12 +448,14 @@ export function extractReservationFieldsWithRegex(text: string): Partial<Reserva
     if (!isNaN(clean)) result.toPayMxn = clean;
   }
 
-  // REP / Representante / Agente / Vendedor
-  const repMatch = text.match(/(?:rep|representante|agente(?:\s+de\s+viajes)?|vendedor|promotor)[:\s*]+([A-Za-zÁÉÍÓÚáéíóúñÑüÜ\s.'-]+?)(?:,|\.|\n|;|\||$)/i);
+  // REP / Representante / Agente / Vendedor / Agencia / Compañía / Red
+  const repMatch = text.match(/(?:rep|rep\.|red|representante|agencia(?:\s+de\s+viajes)?|compa[ñn][ií]a|agente(?:\s+de\s+viajes)?|vendedor|promotor)[:\s*]+([A-Za-zÁÉÍÓÚáéíóúñÑüÜ\s.'-]+?)(?:,|\.|\n|;|\||$)/i);
   if (repMatch && repMatch[1]?.trim() && repMatch[1].trim().length > 1) {
     const rawRep = repMatch[1].trim();
     if (!/^(hotel|vuelo|llegada|salida|tour|servicio|traslado|aeropuerto|cancun|cancún)$/i.test(rawRep)) {
       result.rep = rawRep;
+      result.agency = rawRep;
+      result.company = rawRep;
     }
   }
 
@@ -586,8 +588,13 @@ export function normalizeReservationData(parsedData: any): Partial<Reservation> 
     }));
   }
 
-  if (normalized.rep) {
-    normalized.rep = String(normalized.rep).trim();
+  const resolvedRep = (normalized.rep && String(normalized.rep).trim()) ||
+    (normalized.agency && String(normalized.agency).trim()) ||
+    (normalized.company && String(normalized.company).trim()) || '';
+  if (resolvedRep) {
+    normalized.rep = resolvedRep;
+    normalized.agency = resolvedRep;
+    normalized.company = resolvedRep;
   }
 
   return normalized;

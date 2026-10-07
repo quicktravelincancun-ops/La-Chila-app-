@@ -21,6 +21,7 @@ import {
   formatReservationToTSV,
   copyTextToClipboard,
   getReservationRows,
+  getTargetSheetNameForDate,
   APPS_SCRIPT_REWRITE_CODE,
   getGoogleSheetsWebhookUrl,
   openWhatsAppDirectly
@@ -241,6 +242,16 @@ const App: React.FC = () => {
       }
     }
 
+    if (name === 'rep' || name === 'agency' || name === 'company') {
+      setFormData(prev => ({
+        ...prev,
+        rep: value,
+        agency: value,
+        company: value
+      }));
+      return;
+    }
+
     const isNumeric = ['peopleCountArrival', 'peopleCountDeparture', 'peopleCount', 'depositMxn', 'toPayMxn', 'depositUsd', 'toPayUsd'].includes(name);
 
     setFormData(prev => ({ 
@@ -454,9 +465,11 @@ const App: React.FC = () => {
       }
 
       // c) Show explicit confirmation modal/toast
+      const targetSheetName = getTargetSheetNameForDate(savedRes.dateArrival || savedRes.dateDeparture || (savedRes as any).date);
+      const sheetDetail = targetSheetName ? ` (Hoja: ${targetSheetName})` : '';
       const successFeedbackMsg = isEditing
-        ? '✓ Reserva reescrita y actualizada con éxito en Google Sheets'
-        : '✓ Guardado con éxito en Google Sheets';
+        ? `✓ Reserva reescrita y actualizada con éxito en Google Sheets${sheetDetail}`
+        : `✓ Guardado con éxito en Google Sheets${sheetDetail}`;
 
       if (sheetsSuccess) {
         setSheetsFeedback({
@@ -751,13 +764,15 @@ ${rawText}
     let success = false;
     try {
       success = await sendReservationToGoogleSheets(resToSend);
+      const targetSheetName = getTargetSheetNameForDate(resToSend.dateArrival || resToSend.dateDeparture || (resToSend as any).date);
+      const sheetDetail = targetSheetName ? ` (Hoja: ${targetSheetName})` : '';
       if (success) {
         setSheetsFeedback({
           show: true,
           type: 'success',
-          message: '✓ Guardado con éxito en Google Sheets'
+          message: `✓ Guardado con éxito en Google Sheets${sheetDetail}`
         });
-        showUIMessage("✓ Guardado con éxito en Google Sheets");
+        showUIMessage(`✓ Guardado con éxito en Google Sheets${sheetDetail}`);
       } else {
         setSheetsFeedback({
           show: true,
@@ -1113,11 +1128,16 @@ ${rawText}
               <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-emerald-950 text-xs leading-relaxed space-y-2">
                 <div className="flex items-center gap-2 font-black text-emerald-900 uppercase">
                   <i className="fas fa-circle-check text-emerald-600 text-sm"></i>
-                  <span>¿Cómo funciona la reescritura en Google Sheets?</span>
+                  <span>Actualización: Selección automática de hoja por mes y columna REP</span>
                 </div>
                 <p>
-                  Cuando editas una reservación y presionas <strong>"GUARDAR CAMBIOS Y REESCRIBIR RESERVA"</strong>, el sistema busca en tu hoja de Google Sheets si ya existe el <strong>Folio</strong> y <strong>Tipo de Servicio (Llegada o Salida)</strong>. Si existe, <strong>reemplaza esa misma fila</strong> con los nuevos datos; si no existe, la inserta como nueva.
+                  El nuevo script incluye:
                 </p>
+                <ul className="list-disc list-inside space-y-1 pl-1 text-[11px] text-emerald-900">
+                  <li><strong>Enrutamiento automático por mes:</strong> Si la reserva es para el <em>10-11-2026</em>, se registra automáticamente en la pestaña <em>"Noviembre 2026"</em> (o la crea si no existe), en lugar de quedarse en la hoja activa anterior.</li>
+                  <li><strong>Columna REP:</strong> Detecta automáticamente tu columna <em>REP</em> (o Red / Representante) y guarda el nombre asignado en la aplicación.</li>
+                  <li><strong>Reescritura inteligente:</strong> Al editar, actualiza la misma fila por Folio y tipo de servicio.</li>
+                </ul>
                 <div className="pt-2 flex flex-wrap gap-2">
                   <a
                     href={GOOGLE_SHEET_URL}
@@ -1132,10 +1152,10 @@ ${rawText}
                   <button
                     type="button"
                     onClick={handleCopyAppsScript}
-                    className="inline-flex items-center gap-1.5 py-2 px-3.5 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-[11px] font-black uppercase transition-all cursor-pointer"
+                    className="inline-flex items-center gap-1.5 py-2 px-3.5 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-[11px] font-black uppercase transition-all cursor-pointer shadow-sm"
                   >
                     <i className={`fas ${copiedScript ? 'fa-check text-emerald-600' : 'fa-copy text-emerald-600'} text-xs`}></i>
-                    <span>{copiedScript ? '¡Código Copiado!' : 'Copiar Código de Apps Script'}</span>
+                    <span>{copiedScript ? '¡Código Copiado!' : 'Copiar Nuevo Código de Apps Script'}</span>
                   </button>
                 </div>
               </div>
@@ -1144,13 +1164,13 @@ ${rawText}
               <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3">
                 <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
                   <i className="fas fa-list-ol text-blue-600"></i>
-                  Pasos para instalar o actualizar el script en tu Google Sheet:
+                  Pasos para actualizar el script en tu Google Sheet:
                 </h4>
                 <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside pl-1 leading-relaxed">
                   <li>Abre tu hoja de Google Sheets y en el menú superior selecciona <strong>Extensiones &gt; Apps Script</strong>.</li>
-                  <li>Reemplaza el contenido de <strong>Código.gs</strong> pegando el código de abajo.</li>
-                  <li>Haz clic en <strong>Implementar &gt; Administrar implementaciones</strong> (o Nueva implementación &gt; Tipo: <em>Aplicación web</em> &gt; Quién tiene acceso: <em>Cualquier usuario</em>).</li>
-                  <li>Copia la URL del Webhook resultante y pégala abajo si es diferente a la configurada por defecto.</li>
+                  <li>Reemplaza todo el contenido de <strong>Código.gs</strong> pegando el nuevo código de abajo.</li>
+                  <li>Haz clic en <strong>Implementar &gt; Administrar implementaciones</strong> (o Nueva implementación &gt; Tipo: <em>Aplicación web</em> &gt; Versión: <em>Nueva</em> &gt; Quién tiene acceso: <em>Cualquier usuario</em>).</li>
+                  <li>Haz clic en <strong>Implementar</strong> para guardar los cambios. ¡Listo! Ya enviará a la pestaña del mes correcto y guardará el REP.</li>
                 </ol>
               </div>
 

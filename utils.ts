@@ -178,79 +178,249 @@ export function getGoogleSheetsWebhookUrl(): string {
 export const APPS_SCRIPT_REWRITE_CODE = `/**
  * QUICK TRAVEL CANCÚN - WEBHOOK PARA GOOGLE SHEETS
  * Permite GUARDAR y REESCRIBIR reservaciones automáticamente por folio y servicio.
+ * SELECCIONA AUTOMÁTICAMENTE LA HOJA DEL MES CORRESPONDIENTE (ej. "Noviembre 2026", "noviembre 2026").
+ * DETECTA Y GUARDA AUTOMÁTICAMENTE EL CAMPO "REP" EN SU COLUMNA CORRESPONDIENTE.
  */
 function doPost(e) {
   try {
     var contents = e.postData.contents;
     var data = JSON.parse(contents);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getActiveSheet();
+    
+    // 1. OBTENER LA HOJA DEL MES CORRECTO SEGÚN LA FECHA DE LA RESERVA (ej. 10-11-2026 -> Noviembre 2026)
+    var sheet = getTargetMonthSheet(ss, data);
     
     var lastRow = sheet.getLastRow();
     var codeToFind = String(data.code || "").trim();
     var serviceToFind = String(data.serviceType || "").trim().toLowerCase();
     
-    var rowToUpdate = -1;
+    // 2. DETECCIÓN DINÁMICA DE COLUMNAS (Folio, Fecha, ..., Chofer, Rep)
+    var totalCols = Math.max(sheet.getLastColumn(), 13);
+    var headers = [];
+    if (lastRow >= 1) {
+      headers = sheet.getRange(1, 1, 1, totalCols).getValues()[0] || [];
+    }
+    
+    var colMap = {
+      code: 1,
+      date: 2,
+      time: 3,
+      serviceType: 4,
+      origin: 5,
+      destination: 6,
+      pax: 7,
+      passenger: 8,
+      flight: 9,
+      amount: 10,
+      driver: 11,
+      rep: 12
+    };
+    
+    var repFoundInHeader = false;
+    for (var h = 0; h < headers.length; h++) {
+      var hText = String(headers[h] || "").trim().toLowerCase();
+      if (!hText) continue;
+      var cIdx = h + 1;
+      if (/^(folio|c[oó]digo|clave|id|orden)/i.test(hText)) colMap.code = cIdx;
+      else if (/^(fecha|date)/i.test(hText)) colMap.date = cIdx;
+      else if (/^(hora|time)/i.test(hText)) colMap.time = cIdx;
+      else if (/^(servicio|service)/i.test(hText)) colMap.serviceType = cIdx;
+      else if (/^(origen|pickup|origin)/i.test(hText)) colMap.origin = cIdx;
+      else if (/^(destino|dest|dropoff)/i.test(hText)) colMap.destination = cIdx;
+      else if (/^(pax|personas|pasajeros)/i.test(hText)) colMap.pax = cIdx;
+      else if (/^(pasajero|nombre|cliente|titular|guest)/i.test(hText)) colMap.passenger = cIdx;
+      else if (/^(vuelo|flight|habitaci[oó]n|room)/i.test(hText)) colMap.flight = cIdx;
+      else if (/^(balance|monto|cobro|saldo|precio|total|amount)/i.test(hText)) colMap.amount = cIdx;
+      else if (/^(chofer|conductor|operador|driver)/i.test(hText)) colMap.driver = cIdx;
+      else if (/^(rep|red|representante)/i.test(hText)) { colMap.rep = cIdx; repFoundInHeader = true; }
+      else if (!repFoundInHeader && /^(compa[ñn][ií]a|agencia|empresa)/i.test(hText)) { colMap.rep = cIdx; }
+    }
+    
+    var repValue = String(data.rep || data.company || data.agency || "").trim();
+    var driverValue = String(data.driver || "").trim();
     
     // Buscar si el folio y tipo de servicio ya existen en la hoja para REESCRIBIR
+    var rowToUpdate = -1;
+    var values = [];
+    var maxCol = Math.max(totalCols, colMap.rep, colMap.driver, 13);
+    
     if (lastRow > 1 && codeToFind) {
       var numRows = lastRow - 1;
-      var numCols = Math.max(sheet.getLastColumn(), 12);
-      var values = sheet.getRange(2, 1, numRows, numCols).getValues();
+      values = sheet.getRange(2, 1, numRows, maxCol).getValues();
+      var codeIdx = colMap.code - 1;
+      var serviceIdx = colMap.serviceType - 1;
       
       for (var i = 0; i < values.length; i++) {
-        var existingCode = String(values[i][0] || "").trim();
-        var existingService = String(values[i][3] || "").trim().toLowerCase();
+        var existingCode = String(values[i][codeIdx] || "").trim();
+        var existingService = String(values[i][serviceIdx] || "").trim().toLowerCase();
         
         // Coincidencia exacta de folio y servicio (ej. Llegada con Llegada, Salida con Salida)
         if (existingCode === codeToFind) {
           if (!serviceToFind || existingService === serviceToFind || (serviceToFind !== 'llegada' && serviceToFind !== 'salida')) {
-            rowToUpdate = i + 2; // Fila real en la hoja (empezó en fila 2)
+            rowToUpdate = i + 2; // Fila real en la hoja
             break;
           }
         }
       }
     }
     
-    var repValue = String(data.rep || data.company || data.agency || "").trim();
-    var driverValue = String(data.driver || "").trim();
-
-    // Columnas exactas de la hoja:
-    // A: Folio | B: Fecha | C: Hora | D: Servicio | E: Origen | F: Destino | G: Pax | H: Nombre | I: Vuelo/Habita | J: Balance | K: Chofer | L: Rep
-    var rowData = [
-      data.code || "",
-      data.date || "",
-      data.time || "",
-      data.serviceType || "",
-      data.origin || "",
-      data.destination || "",
-      data.pax || "",
-      data.passenger || "",
-      data.flight || "",
-      data.amount || "",
-      driverValue,
-      repValue
-    ];
+    // Construir fila completa
+    var rowData = [];
+    for (var c = 0; c < maxCol; c++) {
+      rowData.push("");
+    }
+    
+    rowData[colMap.code - 1] = data.code || "";
+    rowData[colMap.date - 1] = data.date || "";
+    rowData[colMap.time - 1] = data.time || "";
+    rowData[colMap.serviceType - 1] = data.serviceType || "";
+    rowData[colMap.origin - 1] = data.origin || "";
+    rowData[colMap.destination - 1] = data.destination || "";
+    rowData[colMap.pax - 1] = data.pax || "";
+    rowData[colMap.passenger - 1] = data.passenger || "";
+    rowData[colMap.flight - 1] = data.flight || "";
+    rowData[colMap.amount - 1] = data.amount || "";
+    rowData[colMap.driver - 1] = driverValue;
+    rowData[colMap.rep - 1] = repValue;
+    
+    // Si la hoja tiene 12 o 13 columnas y no se encontró header explícito, asegurar repValue en col 12 y col 13
+    if (!repFoundInHeader) {
+      if (rowData.length >= 12) rowData[11] = repValue; // Columna L
+      if (rowData.length >= 13) rowData[12] = repValue; // Columna M
+    }
     
     if (rowToUpdate > 0) {
-      // Si la fila existente ya tenía chofer asignado en la Columna K (índice 10), preservarlo
-      if (!driverValue && values[rowToUpdate - 2] && values[rowToUpdate - 2][10]) {
-        rowData[10] = values[rowToUpdate - 2][10];
+      // Preservar chofer existente si no se pasó uno nuevo
+      var driverIdx = colMap.driver - 1;
+      if (!driverValue && values[rowToUpdate - 2] && values[rowToUpdate - 2][driverIdx]) {
+        rowData[driverIdx] = values[rowToUpdate - 2][driverIdx];
       }
-      // REESCRIBIR / SOBREESCRIBIR la fila existente
       sheet.getRange(rowToUpdate, 1, 1, rowData.length).setValues([rowData]);
-      return ContentService.createTextOutput(JSON.stringify({ status: "success", action: "rewritten", row: rowToUpdate }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify({ 
+        status: "success", 
+        action: "rewritten", 
+        sheet: sheet.getName(),
+        row: rowToUpdate 
+      })).setMimeType(ContentService.MimeType.JSON);
     } else {
-      // INSERTAR nueva fila al final
       sheet.appendRow(rowData);
-      return ContentService.createTextOutput(JSON.stringify({ status: "success", action: "inserted", row: sheet.getLastRow() }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify({ 
+        status: "success", 
+        action: "inserted", 
+        sheet: sheet.getName(),
+        row: sheet.getLastRow() 
+      })).setMimeType(ContentService.MimeType.JSON);
     }
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+/**
+ * Busca y retorna la hoja del mes y año correspondiente según la fecha (ej. "noviembre 2026")
+ */
+function getTargetMonthSheet(ss, data) {
+  var allSheets = ss.getSheets();
+  if (!allSheets || allSheets.length === 0) return ss.getActiveSheet();
+  
+  // 1. Si viene nombre explícito en data.sheetName
+  var explicitNames = [data.sheetName, data.targetSheet, data.sheet, data.sheetNameLower];
+  for (var e = 0; e < explicitNames.length; e++) {
+    if (!explicitNames[e]) continue;
+    var exp = String(explicitNames[e]).trim().toLowerCase();
+    for (var s = 0; s < allSheets.length; s++) {
+      if (allSheets[s].getName().trim().toLowerCase() === exp) {
+        return allSheets[s];
+      }
+    }
+  }
+  
+  // 2. Extraer mes y año de data.date (ej: "10-11-2026" o "10/11/2026" o "2026-11-10")
+  var dStr = String(data.date || "").trim();
+  var monthNum = -1;
+  var yearNum = -1;
+  
+  var dmyMatch = dStr.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{4})/);
+  if (dmyMatch) {
+    monthNum = parseInt(dmyMatch[2], 10);
+    yearNum = parseInt(dmyMatch[3], 10);
+  } else {
+    var ymdMatch = dStr.match(/^(\\d{4})[\\/\\-](\\d{1,2})[\\/\\-](\\d{1,2})/);
+    if (ymdMatch) {
+      yearNum = parseInt(ymdMatch[1], 10);
+      monthNum = parseInt(ymdMatch[2], 10);
+    }
+  }
+  
+  var spanishMonths = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+  ];
+  
+  if (monthNum >= 1 && monthNum <= 12) {
+    var mName = spanishMonths[monthNum - 1]; // ej: "noviembre"
+    var yStr = yearNum > 0 ? String(yearNum) : ""; // ej: "2026"
+    var mShort = mName.substring(0, 3); // ej: "nov"
+    
+    // Coincidencia exacta: "noviembre 2026", "noviembre-2026", "noviembre_2026"
+    for (var s = 0; s < allSheets.length; s++) {
+      var sName = allSheets[s].getName().trim().toLowerCase();
+      if (yStr && (sName === (mName + " " + yStr) || sName === (mName + "-" + yStr) || sName === (mName + "_" + yStr))) {
+        return allSheets[s];
+      }
+    }
+    
+    // Contiene mes y año
+    for (var s = 0; s < allSheets.length; s++) {
+      var sName = allSheets[s].getName().trim().toLowerCase();
+      if (sName.indexOf(mName) !== -1 && (yStr ? sName.indexOf(yStr) !== -1 : true)) {
+        return allSheets[s];
+      }
+    }
+    
+    // Coincidencia con nombre de mes solo ("noviembre")
+    for (var s = 0; s < allSheets.length; s++) {
+      var sName = allSheets[s].getName().trim().toLowerCase();
+      if (sName === mName) {
+        return allSheets[s];
+      }
+    }
+    
+    // Contiene nombre del mes
+    for (var s = 0; s < allSheets.length; s++) {
+      var sName = allSheets[s].getName().trim().toLowerCase();
+      if (sName.indexOf(mName) !== -1) {
+        return allSheets[s];
+      }
+    }
+    
+    // Contiene abreviación (ej: "nov 2026")
+    for (var s = 0; s < allSheets.length; s++) {
+      var sName = allSheets[s].getName().trim().toLowerCase();
+      if (sName.indexOf(mShort) !== -1 && (yStr ? sName.indexOf(yStr) !== -1 : true)) {
+        return allSheets[s];
+      }
+    }
+    
+    // Si no existe la pestaña, crearla con formato "Noviembre 2026" y copiar encabezados
+    try {
+      var capM = mName.charAt(0).toUpperCase() + mName.slice(1);
+      var newName = yStr ? (capM + " " + yStr) : capM;
+      var newSheet = ss.insertSheet(newName);
+      if (allSheets[0]) {
+        var hRow = allSheets[0].getRange(1, 1, 1, Math.max(allSheets[0].getLastColumn(), 13)).getValues();
+        if (hRow && hRow[0]) {
+          newSheet.getRange(1, 1, 1, hRow[0].length).setValues(hRow);
+        }
+      }
+      return newSheet;
+    } catch (e) {
+      // Ignorar error y usar fallback
+    }
+  }
+  
+  return ss.getActiveSheet();
 }`;
 
 export interface SheetsRowData {
@@ -471,8 +641,38 @@ export function formatReservationToTSV(res: Reservation | any): string {
     r.passenger,
     r.flight,
     r.amount,
+    r.driver || '',
     r.rep || res.rep || r.company || r.agency || ''
   ].join('\t')).join('\n');
+}
+
+/**
+ * Calculates expected Google Sheets tab name based on date (e.g. "10-11-2026" -> "Noviembre 2026")
+ */
+export function getTargetSheetNameForDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  const clean = dateStr.trim();
+  let m = -1;
+  let y = -1;
+  const dmyMatch = clean.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmyMatch) {
+    m = parseInt(dmyMatch[2], 10);
+    y = parseInt(dmyMatch[3], 10);
+  } else {
+    const ymdMatch = clean.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+    if (ymdMatch) {
+      y = parseInt(ymdMatch[1], 10);
+      m = parseInt(ymdMatch[2], 10);
+    }
+  }
+  const months = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+  ];
+  if (m >= 1 && m <= 12 && y > 0) {
+    return `${months[m - 1]} ${y}`;
+  }
+  return '';
 }
 
 /**
@@ -546,6 +746,7 @@ export async function sendReservationToGoogleSheets(
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+      const targetSheetName = getTargetSheetNameForDate(row.date);
       const payload = {
         action: isEdit ? 'update' : 'create',
         mode: isEdit ? 'rewrite' : 'insert',
@@ -562,7 +763,11 @@ export async function sendReservationToGoogleSheets(
         amount: row.amount,
         rep: row.rep || res.rep || '',
         company: row.rep || res.rep || row.company || res.company || '',
-        agency: row.rep || res.rep || row.agency || res.agency || ''
+        agency: row.rep || res.rep || row.agency || res.agency || '',
+        sheetName: targetSheetName,
+        targetSheet: targetSheetName,
+        sheet: targetSheetName,
+        sheetNameLower: targetSheetName ? targetSheetName.toLowerCase() : ''
       };
 
       console.log(`[GoogleSheets Webhook] POSTing row ${i + 1}/${rows.length} (${row.serviceType}, isEdit=${isEdit}):`, payload);
@@ -729,12 +934,6 @@ export function generateDriverArrivalWhatsAppMessage(res: Reservation): string {
   msg += `1️⃣ Cliente a bordo: ${onboardArrivalLink}\n`;
   msg += `2️⃣ Servicio Finalizado: ${completedArrivalLink}`;
 
-  // Include Google Maps link from Cancun Airport to Destination if destination is explicit
-  if (isSpecificLocation(destination)) {
-    const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;
-    msg += `\n\n🗺️ RUTA EN GOOGLE MAPS:\n${mapsUrl}`;
-  }
-
   return msg;
 }
 
@@ -742,7 +941,6 @@ export function generateDriverArrivalWhatsAppMessage(res: Reservation): string {
  * Generates the clean WhatsApp text message for the driver for a DEPARTURE leg:
  * - Departure Flight, Hotel Pickup Time, Airport Terminal Destination
  * - Status links with -S suffix (https://app.quicktravelcancun.com/status/[code]-S?step=...)
- * - Conditional Google Maps link from Hotel/Origin to Cancun Airport if origin is explicit
  */
 export function generateDriverDepartureWhatsAppMessage(res: Reservation): string {
   const passenger = res.departureName || res.name || 'Cliente';
@@ -795,12 +993,6 @@ export function generateDriverDepartureWhatsAppMessage(res: Reservation): string
   msg += `🔗 ESTATUS DEL SERVICIO:\n`;
   msg += `1️⃣ Cliente a bordo: ${onboardDepartureLink}\n`;
   msg += `2️⃣ Servicio Finalizado: ${completedDepartureLink}`;
-
-  // Include Google Maps link from Hotel/Origin to Cancun Airport if origin is explicit
-  if (isSpecificLocation(origin)) {
-    const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;
-    msg += `\n\n🗺️ RUTA EN GOOGLE MAPS:\n${mapsUrl}`;
-  }
 
   return msg;
 }
