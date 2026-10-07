@@ -212,11 +212,11 @@ function doPost(e) {
       }
     }
     
-    var companyValue = String(data.company || data.agency || "Quick Travel").trim();
+    var repValue = String(data.rep || data.company || data.agency || "").trim();
     var driverValue = String(data.driver || "").trim();
 
     // Columnas exactas de la hoja:
-    // A: Folio | B: Fecha | C: Hora | D: Servicio | E: Origen | F: Destino | G: Pax | H: Nombre | I: Vuelo/Habita | J: Balance | K: Chofer | L: Compañía
+    // A: Folio | B: Fecha | C: Hora | D: Servicio | E: Origen | F: Destino | G: Pax | H: Nombre | I: Vuelo/Habita | J: Balance | K: Chofer | L: Rep
     var rowData = [
       data.code || "",
       data.date || "",
@@ -229,7 +229,7 @@ function doPost(e) {
       data.flight || "",
       data.amount || "",
       driverValue,
-      companyValue
+      repValue
     ];
     
     if (rowToUpdate > 0) {
@@ -265,6 +265,7 @@ export interface SheetsRowData {
   flight: string;
   amount: string;
   driver?: string;
+  rep?: string;
   company?: string;
   agency?: string;
 }
@@ -326,9 +327,9 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
 
   const baseCode = String(res.code || res.reservationNo || res.id || '');
   const rawService = String(res.serviceType || '').trim();
-  const companyName = (res.company && String(res.company).trim())
-    ? String(res.company).trim()
-    : ((res.agency && String(res.agency).trim()) ? String(res.agency).trim() : 'Quick Travel Cancún');
+  const repName = (res.rep && String(res.rep).trim())
+    ? String(res.rep).trim()
+    : ((res.company && String(res.company).trim()) ? String(res.company).trim() : ((res.agency && String(res.agency).trim()) ? String(res.agency).trim() : ''));
 
   // Robust Round-Trip detection (Llegada y Salida / Viaje Redondo)
   const isRoundTrip = 
@@ -365,8 +366,9 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
       passenger: arrivalPassenger,
       flight: arrivalFlight,
       amount: balanceStr,
-      company: companyName,
-      agency: companyName
+      rep: repName,
+      company: repName,
+      agency: repName
     };
 
     // 2. Departure Leg (Salida) - Service must ONLY be 'Salida'
@@ -391,8 +393,9 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
       passenger: departurePassenger,
       flight: departureFlight,
       amount: hasPendingBalance ? '$0 (Cobrado en Llegada)' : '$0',
-      company: companyName,
-      agency: companyName
+      rep: repName,
+      company: repName,
+      agency: repName
     };
 
     return [arrivalRow, departureRow];
@@ -442,8 +445,9 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
     passenger: passengerName || '',
     flight: flightInfo || '',
     amount: balanceStr,
-    company: companyName,
-    agency: companyName
+    rep: repName,
+    company: repName,
+    agency: repName
   };
 
   return [singleRow];
@@ -452,7 +456,7 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
 /**
  * Formats reservation data into clean Tab-Separated Values (TSV):
  * When Round Trip: Outputs BOTH rows (Llegada and Salida) separated by \n
- * Order: Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount \t Compañía
+ * Order: Code \t Date \t Time \t Service \t Origin \t Destination \t Pax \t Passenger \t Flight \t Amount \t Rep
  */
 export function formatReservationToTSV(res: Reservation | any): string {
   const rows = getReservationRows(res);
@@ -467,7 +471,7 @@ export function formatReservationToTSV(res: Reservation | any): string {
     r.passenger,
     r.flight,
     r.amount,
-    r.company || r.agency || res.company || res.agency || 'Quick Travel Cancún'
+    r.rep || res.rep || r.company || r.agency || ''
   ].join('\t')).join('\n');
 }
 
@@ -556,8 +560,9 @@ export async function sendReservationToGoogleSheets(
         passenger: row.passenger,
         flight: row.flight,
         amount: row.amount,
-        company: row.company || res.company || row.agency || res.agency || 'Quick Travel Cancún',
-        agency: row.company || res.company || row.agency || res.agency || 'Quick Travel Cancún'
+        rep: row.rep || res.rep || '',
+        company: row.rep || res.rep || row.company || res.company || '',
+        agency: row.rep || res.rep || row.agency || res.agency || ''
       };
 
       console.log(`[GoogleSheets Webhook] POSTing row ${i + 1}/${rows.length} (${row.serviceType}, isEdit=${isEdit}):`, payload);

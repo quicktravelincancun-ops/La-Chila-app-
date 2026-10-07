@@ -448,6 +448,15 @@ export function extractReservationFieldsWithRegex(text: string): Partial<Reserva
     if (!isNaN(clean)) result.toPayMxn = clean;
   }
 
+  // REP / Representante / Agente / Vendedor
+  const repMatch = text.match(/(?:rep|representante|agente(?:\s+de\s+viajes)?|vendedor|promotor)[:\s*]+([A-Za-zÁÉÍÓÚáéíóúñÑüÜ\s.'-]+?)(?:,|\.|\n|;|\||$)/i);
+  if (repMatch && repMatch[1]?.trim() && repMatch[1].trim().length > 1) {
+    const rawRep = repMatch[1].trim();
+    if (!/^(hotel|vuelo|llegada|salida|tour|servicio|traslado|aeropuerto|cancun|cancún)$/i.test(rawRep)) {
+      result.rep = rawRep;
+    }
+  }
+
   return result;
 }
 
@@ -577,6 +586,10 @@ export function normalizeReservationData(parsedData: any): Partial<Reservation> 
     }));
   }
 
+  if (normalized.rep) {
+    normalized.rep = String(normalized.rep).trim();
+  }
+
   return normalized;
 }
 
@@ -611,6 +624,7 @@ Todas las fechas deben estar en formato mexicano DD/MM/YYYY (ejemplo: 27/09/2026
 Devuelve un objeto JSON con estos campos (incluye tanto las llaves principales como las detalladas cuando apliquen):
 - passenger (string: nombre del pasajero titular)
 - name (string: nombre del pasajero titular)
+- rep (string: nombre del rep o representante de ventas/agencia si se menciona, ej. "Paty Alamillo")
 - serviceType ("Llegada y Salida" | "Solo Llegada" | "Solo Salida" | "Solo Traslado" | "Tour o Excursión" | "Circuito")
 - transferSubtype ("Traslado Redondo" | "Traslado Sencillo" | "Traslado Múltiple")
 - tourName (string)

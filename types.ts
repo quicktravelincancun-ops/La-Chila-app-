@@ -33,7 +33,8 @@ export interface CircuitoLeg {
 export interface Reservation {
   id: string;
   reservationNo: string;
-  company?: string; // Nombre de la compañía (default: Quick Travel)
+  rep?: string; // Nombre del REP / Representante (predeterminado en blanco)
+  company?: string; // Nombre de la compañía
   agency?: string; // Alias de retrocompatibilidad
   name: string; // Titular / Lead Name
   serviceType: string; // Type of service (Arrival, Departure, etc.)
