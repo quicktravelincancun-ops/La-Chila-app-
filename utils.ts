@@ -395,8 +395,8 @@ function doPost(e) {
     if (colMap.rep) {
       rowData[colMap.rep - 1] = repValue;
     }
-    // Asegurar columna 12 si la hoja tiene al menos 12 columnas
-    if (rowData.length >= 12 && !rowData[11]) {
+    // Asegurar que la columna 12 (AGENCIA DE VIAJES estándar) reciba el representante
+    if (rowData.length >= 12 && repValue) {
       rowData[11] = repValue;
     }
     
@@ -686,6 +686,19 @@ function getTargetMonthSheet(ss, data) {
     if (explicitNames[e] && String(explicitNames[e]).trim()) {
       targetName = String(explicitNames[e]).trim();
       break;
+    }
+  }
+  
+  // 0. Si viene explicitNames (ej. "noviembre 2026", "diciembre 2026", "enero 2027", "octubre 2026"), buscar coincidencia directa
+  for (var e = 0; e < explicitNames.length; e++) {
+    var expName = explicitNames[e] ? String(explicitNames[e]).trim().toLowerCase().replace(/\\s+/g, ' ') : '';
+    if (!expName) continue;
+    for (var s = 0; s < allSheets.length; s++) {
+      var curSheetName = allSheets[s].getName().trim().toLowerCase().replace(/\\s+/g, ' ');
+      if (curSheetName === expName) {
+        ss.setActiveSheet(allSheets[s]);
+        return allSheets[s];
+      }
     }
   }
   
@@ -1310,9 +1323,23 @@ export async function sendReservationToGoogleSheets(
 }
 
 /**
+ * Returns current public base URL of the app (or production domain fallback)
+ * for clean 1-line status redirect links.
+ */
+export function getAppBaseUrl(): string {
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    const origin = window.location.origin;
+    if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+      return origin;
+    }
+  }
+  return 'https://app.quicktravelcancun.com';
+}
+
+/**
  * Opens WhatsApp directly into the native mobile app on Android/iOS,
- * completely avoiding the intermediary api.whatsapp.com browser web page
- * (which displays the white WhatsApp logo and "Compartir en WhatsApp API").
+ * or directly to WhatsApp Web on Desktop, completely avoiding the intermediary
+ * wa.me / api.whatsapp.com browser web page (which displays the white WhatsApp logo and "Compartir en WhatsApp").
  */
 export const openWhatsAppDirectly = (message: string, phone?: string) => {
   const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
@@ -1323,7 +1350,11 @@ export const openWhatsAppDirectly = (message: string, phone?: string) => {
     ? `whatsapp://send?phone=${cleanPhone}&text=${encodedText}`
     : `whatsapp://send?text=${encodedText}`;
 
-  // Universal wa.me clean link (fallback)
+  // Direct WhatsApp Web URL on desktop skips wa.me intermediary landing page
+  const webWhatsAppUrl = cleanPhone
+    ? `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}`
+    : `https://web.whatsapp.com/send?text=${encodedText}`;
+
   const universalUrl = cleanPhone
     ? `https://wa.me/${cleanPhone}?text=${encodedText}`
     : `https://wa.me/?text=${encodedText}`;
@@ -1336,14 +1367,18 @@ export const openWhatsAppDirectly = (message: string, phone?: string) => {
     return;
   }
 
-  // Desktop: open universal wa.me link in new tab or try protocol
+  // Desktop: open WhatsApp Web directly or native protocol, avoiding wa.me white banner
   try {
-    const newWin = window.open(universalUrl, '_blank', 'noopener,noreferrer');
+    const newWin = window.open(webWhatsAppUrl, '_blank', 'noopener,noreferrer');
     if (!newWin) {
       window.location.href = nativeUrl;
     }
   } catch (e) {
-    window.location.href = nativeUrl;
+    try {
+      window.location.href = nativeUrl;
+    } catch (e2) {
+      window.open(universalUrl, '_blank', 'noopener,noreferrer');
+    }
   }
 };
 
@@ -1440,11 +1475,10 @@ export function generateDriverArrivalWhatsAppMessage(res: Reservation): string {
   msg += `🏁 Destino: ${destination}\n`;
   msg += `👥 Pasajeros: ${pax} PAX\n`;
   msg += `💰 COBRO AL CLIENTE: ${amountStr}\n\n`;
-  const dispatchPhone = '529982127348';
-  const onboardArrivalText = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n📋 *Orden:* ${code}-L\n👤 *Pasajero:* ${passenger}\n🟢 *Estatus:* CLIENTE A BORDO (En camino)`;
-  const completedArrivalText = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n📋 *Orden:* ${code}-L\n👤 *Pasajero:* ${passenger}\n✅ *Estatus:* SERVICIO FINALIZADO`;
-  const onboardArrivalLink = `https://wa.me/${dispatchPhone}?text=${encodeURIComponent(onboardArrivalText)}`;
-  const completedArrivalLink = `https://wa.me/${dispatchPhone}?text=${encodeURIComponent(completedArrivalText)}`;
+  const baseUrl = getAppBaseUrl();
+  const passengerParam = passenger && passenger !== 'Cliente' ? `?p=${encodeURIComponent(passenger)}` : '';
+  const onboardArrivalLink = `${baseUrl}/s/1/${encodeURIComponent(code + '-L')}${passengerParam}`;
+  const completedArrivalLink = `${baseUrl}/s/2/${encodeURIComponent(code + '-L')}${passengerParam}`;
 
   msg += `🔗 ESTATUS DEL SERVICIO:\n`;
   msg += `1️⃣ Cliente a bordo: ${onboardArrivalLink}\n`;
@@ -1456,7 +1490,7 @@ export function generateDriverArrivalWhatsAppMessage(res: Reservation): string {
 /**
  * Generates the clean WhatsApp text message for the driver for a DEPARTURE leg:
  * - Departure Flight, Hotel Pickup Time, Airport Terminal Destination
- * - Status links with -S suffix (https://app.quicktravelcancun.com/status/[code]-S?step=...)
+ * - Status links with -S suffix
  */
 export function generateDriverDepartureWhatsAppMessage(res: Reservation): string {
   const passenger = res.departureName || res.name || 'Cliente';
@@ -1500,11 +1534,11 @@ export function generateDriverDepartureWhatsAppMessage(res: Reservation): string
   msg += `🏁 Destino: ${destination}\n`;
   msg += `👥 Pasajeros: ${pax} PAX\n`;
   msg += `💰 COBRO AL CLIENTE: ${amountStr}\n\n`;
-  const dispatchPhone = '529982127348';
-  const onboardDepartureText = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n📋 *Orden:* ${code}-S\n👤 *Pasajero:* ${passenger}\n🟢 *Estatus:* CLIENTE A BORDO (En camino)`;
-  const completedDepartureText = `🚖 *REPORTE CHOFER - QUICK TRAVEL CANCÚN*\n📋 *Orden:* ${code}-S\n👤 *Pasajero:* ${passenger}\n✅ *Estatus:* SERVICIO FINALIZADO`;
-  const onboardDepartureLink = `https://wa.me/${dispatchPhone}?text=${encodeURIComponent(onboardDepartureText)}`;
-  const completedDepartureLink = `https://wa.me/${dispatchPhone}?text=${encodeURIComponent(completedDepartureText)}`;
+
+  const baseUrl = getAppBaseUrl();
+  const passengerParam = passenger && passenger !== 'Cliente' ? `?p=${encodeURIComponent(passenger)}` : '';
+  const onboardDepartureLink = `${baseUrl}/s/1/${encodeURIComponent(code + '-S')}${passengerParam}`;
+  const completedDepartureLink = `${baseUrl}/s/2/${encodeURIComponent(code + '-S')}${passengerParam}`;
 
   msg += `🔗 ESTATUS DEL SERVICIO:\n`;
   msg += `1️⃣ Cliente a bordo: ${onboardDepartureLink}\n`;

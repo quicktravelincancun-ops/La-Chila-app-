@@ -1416,7 +1416,7 @@ ${rawText}
                 </ul>
                 <div className="pt-2 flex flex-wrap gap-2">
                   <a
-                    href={GOOGLE_SHEET_URL}
+                    href={getGoogleSheetUrlForDate(formData.dateArrival || formData.dateDeparture || formData.date)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 py-2 px-3.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-[11px] font-black uppercase transition-all shadow-sm"
@@ -2294,6 +2294,15 @@ ${rawText}
                       const q = reservationSearch.toLowerCase().trim();
                       const dateService = getReservationServiceDate(r).toLowerCase();
                       const timeService = (r.departureTimeHotel || r.arrivalTime || r.time || '').toLowerCase();
+                      let time12h = '';
+                      const tMatch = timeService.match(/(\d{1,2}):(\d{2})/);
+                      if (tMatch) {
+                        const h = parseInt(tMatch[1], 10);
+                        const m = tMatch[2];
+                        const ampm = h >= 12 ? 'pm' : 'am';
+                        const h12 = h % 12 || 12;
+                        time12h = `${h12}:${m} ${ampm} ${h12}:${m}${ampm} ${ampm}`;
+                      }
                       const repVal = (r.rep || r.agency || r.company || '').toLowerCase();
                       const tourNameVal = (r.tourName || '').toLowerCase();
                       const destVal = (r.destination || r.arrivalDestination || r.departureDestination || '').toLowerCase();
@@ -2317,7 +2326,8 @@ ${rawText}
                         dateArrVal.includes(q) ||
                         dateDepVal.includes(q) ||
                         longDate.includes(q) ||
-                        timeService.includes(q)
+                        timeService.includes(q) ||
+                        time12h.includes(q)
                       );
                     });
 
