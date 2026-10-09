@@ -15,7 +15,7 @@ export const ENGLISH_MONTH_NAMES = [
 
 export const SPANISH_MONTHS_MAP: Record<string, string> = {
   enero: '01', ene: '01', january: '01', jan: '01',
-  febrero: '02', feb: '02', february: '02', feb: '02',
+  febrero: '02', feb: '02', february: '02',
   marzo: '03', mar: '03', march: '03',
   abril: '04', abr: '04', april: '04', apr: '04',
   mayo: '05', may: '05',
@@ -305,12 +305,12 @@ export async function testGoogleSheetsWebhook(customUrl?: string): Promise<{ suc
  */
 export const APPS_SCRIPT_REWRITE_CODE = `/**
  * QUICK TRAVEL CANCÚN - WEBHOOK PARA GOOGLE SHEETS
- * - ENRUTA AUTOMÁTICAMENTE A LA PESTAÑA DEL MES Y AÑO (ej. "enero 2027", "noviembre 2026", "octubre 2026").
+ * - ENRUTA AUTOMÁTICAMENTE A LA PESTAÑA DEL MES Y AÑO (ej. "enero 2027", "noviembre 2026", "diciembre 2026", "octubre 2026").
  * - SI LA HOJA NO EXISTE, LA CREA AUTOMÁTICAMENTE Y COPIA LOS ENCABEZADOS.
- * - ORDENA AUTOMÁTICAMENTE TODAS LAS RESERVAS DE FORMA CRONOLÓGICA (POR FECHA Y HORA).
- * - DETECTA AUTOMÁTICAMENTE LA FILA DE ENCABEZADOS (FILA 3 O 4) Y NUNCA ALTERA CELDAS COMBINADAS DEL TÍTULO.
+ * - CAMPO REP O REPRESENTANTE: SE GUARDA EN LA COLUMNA "AGENCIA DE VIAJES" (Y EN "REP").
+ * - ORDEN CRONOLÓGICO ESTRICTO: DÍA, MES, AÑO Y POR HORA (AM / PM O 24H) DE MENOR A MAYOR.
+ * - DETECTA AUTOMÁTICAMENTE LA FILA DE ENCABEZADOS Y NUNCA ALTERA CELDAS COMBINADAS DEL TÍTULO.
  * - REESCRIBE EN EL LUGAR EXACTO AL EDITAR UNA RESERVA POR FOLIO Y SERVICIO.
- * - GUARDA AUTOMÁTICAMENTE EL CAMPO "REP" EN SU COLUMNA CORRESPONDIENTE.
  */
 function doGet(e) {
   return ContentService.createTextOutput(JSON.stringify({
@@ -321,6 +321,11 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+  } catch (lockErr) {}
+  
   try {
     var contents = e.postData.contents;
     var data = JSON.parse(contents);
@@ -333,14 +338,13 @@ function doPost(e) {
     var codeToFind = String(data.code || "").trim();
     var serviceToFind = String(data.serviceType || "").trim().toLowerCase();
     
-    // 2. DETECCIÓN DINÁMICA DE ENCABEZADOS Y MAPEO DE COLUMNAS (soporta encabezados en fila 3, 4 o cualquier fila inicial)
+    // 2. DETECCIÓN DINÁMICA DE ENCABEZADOS Y MAPEO DE COLUMNAS
     var headerInfo = findSheetHeaderInfo(sheet);
     var colMap = headerInfo.colMap;
     var dataStartRow = headerInfo.dataStartRow;
     var maxCol = headerInfo.maxCol;
-    var repFoundInHeader = headerInfo.repFoundInHeader;
     
-    var repValue = String(data.rep || data.company || data.agency || "").trim();
+    var repValue = String(data.rep || data.agency || data.company || data.agenciaDeViajes || "").trim();
     var driverValue = String(data.driver || "").trim();
     
     // 3. BUSCAR SI EL FOLIO Y TIPO DE SERVICIO YA EXISTEN EN LAS FILAS DE DATOS PARA REESCRIBIR EN EL LUGAR EXACTO
@@ -383,11 +387,17 @@ function doPost(e) {
     rowData[colMap.flight - 1] = data.flight || "";
     rowData[colMap.amount - 1] = data.amount || "";
     rowData[colMap.driver - 1] = driverValue;
-    rowData[colMap.rep - 1] = repValue;
     
-    if (!repFoundInHeader) {
-      if (rowData.length >= 12 && !rowData[11]) rowData[11] = repValue;
-      if (rowData.length >= 13 && !rowData[12]) rowData[12] = repValue;
+    // El campo de REP o representante debe ir en AGENCIA DE VIAJES (Columna 12 estándar)
+    if (colMap.agency) {
+      rowData[colMap.agency - 1] = repValue;
+    }
+    if (colMap.rep) {
+      rowData[colMap.rep - 1] = repValue;
+    }
+    // Asegurar columna 12 si la hoja tiene al menos 12 columnas
+    if (rowData.length >= 12 && !rowData[11]) {
+      rowData[11] = repValue;
     }
     
     var finalAction = "inserted";
@@ -406,8 +416,7 @@ function doPost(e) {
       sheet.appendRow(rowData);
     }
     
-    // 5. ORDENAR SIEMPRE CRONOLÓGICAMENTE TODAS LAS FILAS DE DATOS POR FECHA Y HORA (COLUMNAS B Y C)
-    // Se ejecuta de forma segura solo sobre las filas de datos, sin tocar encabezados ni banners combinados
+    // 5. ORDENAR CRONOLÓGICAMENTE TODAS LAS FILAS DE DATOS POR FECHA Y HORA (DE MENOR A MAYOR)
     try {
       sortSheetChronologically(sheet, colMap, dataStartRow);
     } catch (sortErr) {}
@@ -422,6 +431,10 @@ function doPost(e) {
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    try {
+      lock.releaseLock();
+    } catch (lRelErr) {}
   }
 }
 
@@ -463,10 +476,10 @@ function findSheetHeaderInfo(sheet) {
     flight: 9,
     amount: 10,
     driver: 11,
-    rep: 12
+    agency: 12,
+    rep: 14
   };
   
-  var repFoundInHeader = false;
   for (var h = 0; h < headers.length; h++) {
     var hText = String(headers[h] || "").trim().toLowerCase();
     if (!hText) continue;
@@ -482,11 +495,10 @@ function findSheetHeaderInfo(sheet) {
     else if (/^(vuelo|flight|habitaci[oó]n|room)/i.test(hText)) colMap.flight = cIdx;
     else if (/^(balance|monto|cobro|saldo|precio|total|amount)/i.test(hText)) colMap.amount = cIdx;
     else if (/^(chofer|conductor|operador|driver)/i.test(hText)) colMap.driver = cIdx;
-    else if (/^(rep|red|representante)/i.test(hText)) { colMap.rep = cIdx; repFoundInHeader = true; }
-    else if (!repFoundInHeader && /^(agencia|compa[ñn][ií]a|empresa)/i.test(hText)) { colMap.rep = cIdx; }
+    else if (/^(agencia|agencia\\s*de\\s*viajes|empresa|compa[ñn][ií]a)/i.test(hText)) colMap.agency = cIdx;
+    else if (/^(rep|red|representante)/i.test(hText)) colMap.rep = cIdx;
   }
   
-  // La fila donde inician los datos es la siguiente al encabezado (saltando filas vacías si las hay)
   var dataStartRow = headerRowIndex + 1;
   if (lastRow >= dataStartRow) {
     var checkRows = sheet.getRange(dataStartRow, 1, Math.min(lastRow - dataStartRow + 1, 5), maxCol).getValues();
@@ -509,15 +521,13 @@ function findSheetHeaderInfo(sheet) {
     headerRowIndex: headerRowIndex,
     dataStartRow: dataStartRow,
     colMap: colMap,
-    maxCol: Math.max(maxCol, colMap.rep, colMap.driver, 14),
-    repFoundInHeader: repFoundInHeader
+    maxCol: Math.max(maxCol, colMap.agency, colMap.rep, colMap.driver, 14)
   };
 }
 
 /**
- * Ordena cronológicamente todas las reservas de la hoja por Fecha (Col B) y Hora (Col C).
- * Opera exclusivamente sobre las filas de datos (dataStartRow a lastRow), respetando
- * íntegramente los encabezados y cualquier celda combinada del encabezado/título.
+ * Ordena cronológicamente todas las reservas de la hoja por Fecha (DD/MM/AAAA) y Hora (AM / PM o 24h),
+ * de menor a mayor (más próximo primero). Opera exclusivamente sobre las filas de datos reales.
  */
 function sortSheetChronologically(sheet, colMap, dataStartRow) {
   var lastRow = sheet.getLastRow();
@@ -557,14 +567,14 @@ function sortSheetChronologically(sheet, colMap, dataStartRow) {
       var str = String(val).trim();
       if (!str) return 0;
       
-      // 1. DD/MM/YYYY o D/M/YYYY o DD-MM-YYYY
+      // 1. Formato estándar: DD/MM/AAAA o D/M/AAAA o DD-MM-AAAA (primero día, después mes, después año)
       var dmyMatch = str.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{4})/);
       if (dmyMatch) {
         d = parseInt(dmyMatch[1], 10);
         m = parseInt(dmyMatch[2], 10) - 1;
         y = parseInt(dmyMatch[3], 10);
       } else {
-        // 2. YYYY-MM-DD
+        // 2. Formato YYYY-MM-DD
         var ymdMatch = str.match(/^(\\d{4})[\\/\\-](\\d{1,2})[\\/\\-](\\d{1,2})/);
         if (ymdMatch) {
           y = parseInt(ymdMatch[1], 10);
@@ -590,10 +600,19 @@ function sortSheetChronologically(sheet, colMap, dataStartRow) {
     if (y > 0 && m >= 0 && d > 0) {
       var hours = 0, minutes = 0;
       if (timeVal) {
-        var tMatch = String(timeVal).trim().match(/^(\\d{1,2}):(\\d{2})/);
-        if (tMatch) {
-          hours = parseInt(tMatch[1], 10);
-          minutes = parseInt(tMatch[2], 10);
+        if (timeVal instanceof Date) {
+          hours = timeVal.getHours();
+          minutes = timeVal.getMinutes();
+        } else {
+          var tStr = String(timeVal).trim();
+          var tMatch = tStr.match(/(\\d{1,2}):(\\d{2})(?:\\s*(a\\.?m\\.?|p\\.?m\\.?|am|pm))?/i);
+          if (tMatch) {
+            hours = parseInt(tMatch[1], 10);
+            minutes = parseInt(tMatch[2], 10);
+            var ampm = tMatch[3] ? tMatch[3].toLowerCase().replace(/\\./g, '') : null;
+            if (ampm === 'pm' && hours < 12) hours += 12;
+            if (ampm === 'am' && hours === 12) hours = 0;
+          }
         }
       }
       return new Date(y, m, d, hours, minutes).getTime();
@@ -621,17 +640,16 @@ function sortSheetChronologically(sheet, colMap, dataStartRow) {
   var dateIdx = colMap.date - 1;
   var timeIdx = colMap.time - 1;
   
+  // Ordenar de menor a mayor (cronológicamente)
   realDataRows.sort(function(a, b) {
     var tsA = parseDateToTimestamp(a[dateIdx], a[timeIdx]);
     var tsB = parseDateToTimestamp(b[dateIdx], b[timeIdx]);
     if (tsA !== tsB) {
       if (tsA === 0) return 1;
       if (tsB === 0) return -1;
-      return tsA - tsB; // Orden cronológico ascendente (más próximo primero)
+      return tsA - tsB; // Ascendente: menor a mayor
     }
-    var timeA = String(a[timeIdx] || "");
-    var timeB = String(b[timeIdx] || "");
-    return timeA.localeCompare(timeB);
+    return 0;
   });
   
   // Reconstruir matriz con las dimensiones exactas del rango
@@ -650,7 +668,7 @@ function sortSheetChronologically(sheet, colMap, dataStartRow) {
 }
 
 /**
- * Busca y retorna la hoja del mes y año correspondiente según la fecha (ej. "enero 2027", "noviembre 2026").
+ * Busca y retorna la hoja del mes y año correspondiente según la fecha (ej. "enero 2027", "noviembre 2026", "diciembre 2026", "octubre 2026").
  * Si la hoja no existe en el documento, LA CREA AUTOMÁTICAMENTE y copia los encabezados.
  */
 function getTargetMonthSheet(ss, data) {
@@ -688,12 +706,12 @@ function getTargetMonthSheet(ss, data) {
     }
   }
   
-  // 2. Extraer mes y año numérico de data.date (DD/MM/YYYY, YYYY-MM-DD o texto en español)
+  // 2. Extraer mes y año numérico de data.date (formato DD/MM/AAAA: primero día, después mes, después año)
   if (monthNum === -1 || yearNum === -1) {
     var dmyMatch = dStr.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{4})/);
     if (dmyMatch) {
-      monthNum = parseInt(dmyMatch[2], 10);
-      yearNum = parseInt(dmyMatch[3], 10);
+      monthNum = parseInt(dmyMatch[2], 10); // Mes (segundo elemento)
+      yearNum = parseInt(dmyMatch[3], 10);  // Año (tercer elemento)
     } else {
       var ymdMatch = dStr.match(/^(\\d{4})[\\/\\-](\\d{1,2})[\\/\\-](\\d{1,2})/);
       if (ymdMatch) {
@@ -714,13 +732,13 @@ function getTargetMonthSheet(ss, data) {
   }
   
   if (monthNum >= 1 && monthNum <= 12) {
-    var mName = spanishMonths[monthNum - 1]; // ej: "enero"
-    var yStr = yearNum > 0 ? String(yearNum) : ""; // ej: "2027"
+    var mName = spanishMonths[monthNum - 1]; // ej: "enero", "noviembre", "diciembre", "octubre"
+    var yStr = yearNum > 0 ? String(yearNum) : ""; // ej: "2027", "2026"
     var targetSheetName = yStr ? (mName + " " + yStr) : mName; // ej: "enero 2027"
     
-    // 1. Buscar coincidencia exacta (case-insensitive)
+    // 1. Buscar coincidencia exacta (normalizando espacios y case-insensitive)
     for (var s = 0; s < allSheets.length; s++) {
-      var sName = allSheets[s].getName().trim().toLowerCase();
+      var sName = allSheets[s].getName().trim().toLowerCase().replace(/\\s+/g, ' ');
       if (sName === targetSheetName || 
           sName === (mName + "-" + yStr).trim() ||
           sName === (mName + "_" + yStr).trim()) {
@@ -729,7 +747,7 @@ function getTargetMonthSheet(ss, data) {
       }
     }
     
-    // 2. Buscar si contiene el mes y el año
+    // 2. Buscar si el nombre de la pestaña contiene el nombre del mes y el año
     for (var s = 0; s < allSheets.length; s++) {
       var sName = allSheets[s].getName().trim().toLowerCase();
       if (sName.indexOf(mName) !== -1 && (yStr ? sName.indexOf(yStr) !== -1 : true)) {
@@ -738,15 +756,15 @@ function getTargetMonthSheet(ss, data) {
       }
     }
     
-    // 3. Si no existe, crear la hoja automáticamente y copiar encabezados
+    // 3. Si no existe la hoja en el documento, crearla automáticamente y copiar encabezados
     try {
       var newSheet = ss.insertSheet(targetSheetName);
       for (var s = 0; s < allSheets.length; s++) {
         var srcSheet = allSheets[s];
         var srcLastRow = srcSheet.getLastRow();
-        if (srcLastRow >= 4) {
+        if (srcLastRow >= 3) {
           var hCols = Math.max(srcSheet.getLastColumn(), 14);
-          var hRange = srcSheet.getRange(1, 1, 4, hCols);
+          var hRange = srcSheet.getRange(1, 1, Math.min(srcLastRow, 4), hCols);
           hRange.copyTo(newSheet.getRange(1, 1));
           break;
         }
@@ -873,7 +891,8 @@ export function getReservationServiceDate(res: Reservation | any): string {
 }
 
 /**
- * Convierte fecha y hora mexicana a timestamp numérico para ordenamiento cronológico exacto
+ * Convierte fecha y hora mexicana a timestamp numérico para ordenamiento cronológico exacto.
+ * Soporta formato de 24 horas y formato de 12 horas con AM / PM (ej. "8:10 AM", "02:30 PM", "12:15 PM", "12:30 AM", "Pickup: 07:30").
  */
 export function parseMexicanDateToTimestamp(dateStr?: string | null, timeStr?: string | null): number {
   if (!dateStr) return 0;
@@ -898,10 +917,14 @@ export function parseMexicanDateToTimestamp(dateStr?: string | null, timeStr?: s
   if (year > 0 && day > 0) {
     let hours = 0, minutes = 0;
     if (timeStr) {
-      const tMatch = String(timeStr).trim().match(/^(\d{1,2}):(\d{2})/);
+      const tStr = String(timeStr).trim();
+      const tMatch = tStr.match(/(\d{1,2}):(\d{2})(?:\s*(a\.?m\.?|p\.?m\.?|am|pm))?/i);
       if (tMatch) {
         hours = parseInt(tMatch[1], 10);
         minutes = parseInt(tMatch[2], 10);
+        const ampm = tMatch[3] ? tMatch[3].toLowerCase().replace(/\./g, '') : null;
+        if (ampm === 'pm' && hours < 12) hours += 12;
+        if (ampm === 'am' && hours === 12) hours = 0;
       }
     }
     return new Date(year, month, day, hours, minutes).getTime();
@@ -1120,7 +1143,7 @@ export function formatReservationToTSV(res: Reservation | any): string {
     cleanField(r.flight),
     cleanField(r.amount),
     cleanField(r.driver || ''),
-    cleanField(r.rep || res.rep || r.company || r.agency || '')
+    cleanField(r.rep || res.rep || res.agency || res.company || r.company || r.agency || '')
   ].join('\t')).join('\n');
 }
 
@@ -1253,9 +1276,10 @@ export async function sendReservationToGoogleSheets(
         passenger: row.passenger,
         flight: row.flight,
         amount: row.amount,
-        rep: row.rep || res.rep || '',
-        company: row.rep || res.rep || row.company || res.company || '',
-        agency: row.rep || res.rep || row.agency || res.agency || '',
+        rep: row.rep || res.rep || res.agency || res.company || row.company || row.agency || '',
+        company: row.rep || res.rep || res.agency || res.company || row.company || row.agency || '',
+        agency: row.rep || res.rep || res.agency || res.company || row.agency || row.company || '',
+        agenciaDeViajes: row.rep || res.rep || res.agency || res.company || row.agency || row.company || '',
         sheetName: targetSheetName,
         targetSheet: targetSheetName,
         sheet: targetSheetName,

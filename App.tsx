@@ -27,6 +27,8 @@ import {
   sortReservationsChronologically,
   APPS_SCRIPT_REWRITE_CODE,
   getGoogleSheetsWebhookUrl,
+  getGoogleSheetUrlForDate,
+  testGoogleSheetsWebhook,
   openWhatsAppDirectly
 } from './utils';
 import { GoogleGenAI } from '@google/genai';
@@ -75,11 +77,15 @@ const App: React.FC = () => {
     show: boolean;
     type: 'success' | 'error';
     message: string;
+    targetDate?: string;
+    sheetName?: string;
   } | null>(null);
 
   const [showSheetsScriptModal, setShowSheetsScriptModal] = useState(false);
   const [customWebhookUrl, setCustomWebhookUrl] = useState(() => getGoogleSheetsWebhookUrl());
   const [copiedScript, setCopiedScript] = useState(false);
+  const [testingWebhook, setTestingWebhook] = useState(false);
+  const [webhookTestResult, setWebhookTestResult] = useState<{ success: boolean; message: string; sheet?: string } | null>(null);
 
   const generateNewId = () => {
     const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -584,18 +590,24 @@ const App: React.FC = () => {
             ? `✓ Reserva reescrita y actualizada con éxito en Google Sheets${sheetDetail}`
             : `✓ Guardado con éxito en Google Sheets${sheetDetail}`);
 
+      const serviceDate = getReservationServiceDate(savedRes) || savedRes.date || '';
+
       if (sheetsSuccess) {
         setSheetsFeedback({
           show: true,
           type: 'success',
-          message: successFeedbackMsg
+          message: successFeedbackMsg,
+          targetDate: serviceDate,
+          sheetName: targetSheetName
         });
         showUIMessage(successFeedbackMsg);
       } else {
         setSheetsFeedback({
           show: true,
           type: 'error',
-          message: '⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual'
+          message: '⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual',
+          targetDate: serviceDate,
+          sheetName: targetSheetName
         });
         showUIMessage("⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual");
       }
@@ -664,6 +676,28 @@ const App: React.FC = () => {
       showUIMessage('✓ URL del Webhook guardada exitosamente');
     } else {
       showUIMessage('⚠️ Ingresa una URL válida de Google Apps Script (https://script.google.com/...)');
+    }
+  };
+
+  const handleTestWebhook = async () => {
+    setTestingWebhook(true);
+    setWebhookTestResult(null);
+    try {
+      const res = await testGoogleSheetsWebhook(customWebhookUrl);
+      setWebhookTestResult(res);
+      if (res.success) {
+        showUIMessage(res.message);
+      } else {
+        showUIMessage(res.message);
+      }
+    } catch (err: any) {
+      setWebhookTestResult({
+        success: false,
+        message: `Error al conectar con Webhook: ${err.message || 'Error de red'}`
+      });
+      showUIMessage('⚠️ Error de conexión con Webhook');
+    } finally {
+      setTestingWebhook(false);
     }
   };
 
@@ -925,18 +959,23 @@ ${rawText}
       success = await sendReservationToGoogleSheets(resToSend, Boolean(editingId));
       const targetSheetName = getTargetSheetNameForDate(getReservationServiceDate(resToSend));
       const sheetDetail = targetSheetName ? ` (Hoja: ${targetSheetName})` : '';
+      const serviceDate = getReservationServiceDate(resToSend) || resToSend.date || '';
       if (success) {
         setSheetsFeedback({
           show: true,
           type: 'success',
-          message: `✓ Guardado con éxito en Google Sheets${sheetDetail} y ordenado cronológicamente`
+          message: `✓ Guardado con éxito en Google Sheets${sheetDetail} y ordenado cronológicamente`,
+          targetDate: serviceDate,
+          sheetName: targetSheetName
         });
         showUIMessage(`✓ Guardado con éxito en Google Sheets${sheetDetail} y ordenado cronológicamente`);
       } else {
         setSheetsFeedback({
           show: true,
           type: 'error',
-          message: '⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual'
+          message: '⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual',
+          targetDate: serviceDate,
+          sheetName: targetSheetName
         });
         showUIMessage("⚠️ Error de conexión con Sheets. Por favor usa el botón de Respaldo Manual");
       }
@@ -1070,7 +1109,9 @@ ${rawText}
     setSheetsFeedback({
       show: true,
       type: 'success',
-      message: `${alertMsg} Ordenado cronológicamente.`
+      message: `${alertMsg} Ordenado cronológicamente.`,
+      targetDate: targetServiceDate,
+      sheetName: targetSheet
     });
 
     // 6. Abrir la URL del documento de Google Sheets dirigida directamente a la pestaña del mes correspondiente
@@ -1362,15 +1403,16 @@ ${rawText}
               <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-emerald-950 text-xs leading-relaxed space-y-2">
                 <div className="flex items-center gap-2 font-black text-emerald-900 uppercase">
                   <i className="fas fa-circle-check text-emerald-600 text-sm"></i>
-                  <span>Actualización: Selección automática de hoja por mes y columna REP</span>
+                  <span>Actualización: Registro Cronológico, Hojas por Mes y REP en Agencia de Viajes</span>
                 </div>
                 <p>
-                  El nuevo script incluye:
+                  El nuevo script de Google Apps Script incluye todas las correcciones necesarias:
                 </p>
-                <ul className="list-disc list-inside space-y-1 pl-1 text-[11px] text-emerald-900">
-                  <li><strong>Enrutamiento automático por mes:</strong> Si la reserva es para el <em>10-11-2026</em>, se registra automáticamente en la pestaña <em>"Noviembre 2026"</em> (o la crea si no existe), en lugar de quedarse en la hoja activa anterior.</li>
-                  <li><strong>Columna REP:</strong> Detecta automáticamente tu columna <em>REP</em> (o Red / Representante) y guarda el nombre asignado en la aplicación.</li>
-                  <li><strong>Reescritura inteligente:</strong> Al editar, actualiza la misma fila por Folio y tipo de servicio.</li>
+                <ul className="list-disc list-inside space-y-1.5 pl-1 text-[11px] text-emerald-900">
+                  <li><strong>Enrutamiento por mes y año:</strong> Si la reserva es para <em>19/01/2027</em> va a <em>"enero 2027"</em>; si es para noviembre va a <em>"noviembre 2026"</em>; si es diciembre va a <em>"diciembre 2026"</em>, etc. (o crea la hoja automáticamente si no existe).</li>
+                  <li><strong>Orden cronológico estricto:</strong> Se ordenan de menor a mayor por fecha (Día, Mes, Año) y por hora (manejando tanto AM / PM como 24 horas).</li>
+                  <li><strong>Campo REP en Agencia de Viajes:</strong> Guarda el nombre del representante / REP en la columna <em>"AGENCIA DE VIAJES"</em> (y en <em>"REP"</em> si existe la columna).</li>
+                  <li><strong>Reescritura por Folio:</strong> Al editar una reserva, localiza y actualiza la misma fila sin duplicar.</li>
                 </ul>
                 <div className="pt-2 flex flex-wrap gap-2">
                   <a
@@ -1389,7 +1431,7 @@ ${rawText}
                     className="inline-flex items-center gap-1.5 py-2 px-3.5 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-[11px] font-black uppercase transition-all cursor-pointer shadow-sm"
                   >
                     <i className={`fas ${copiedScript ? 'fa-check text-emerald-600' : 'fa-copy text-emerald-600'} text-xs`}></i>
-                    <span>{copiedScript ? '¡Código Copiado!' : 'Copiar Nuevo Código de Apps Script'}</span>
+                    <span>{copiedScript ? '¡Código Copiado!' : 'Copiar Código de Apps Script'}</span>
                   </button>
                 </div>
               </div>
@@ -1398,13 +1440,19 @@ ${rawText}
               <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3">
                 <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
                   <i className="fas fa-list-ol text-blue-600"></i>
-                  Pasos para actualizar el script en tu Google Sheet:
+                  Pasos sencillos para actualizar el script en tu Google Sheet:
                 </h4>
                 <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside pl-1 leading-relaxed">
-                  <li>Abre tu hoja de Google Sheets y en el menú superior selecciona <strong>Extensiones &gt; Apps Script</strong>.</li>
-                  <li>Reemplaza todo el contenido de <strong>Código.gs</strong> pegando el nuevo código de abajo.</li>
-                  <li>Haz clic en <strong>Implementar &gt; Administrar implementaciones</strong> (o Nueva implementación &gt; Tipo: <em>Aplicación web</em> &gt; Versión: <em>Nueva</em> &gt; Quién tiene acceso: <em>Cualquier usuario</em>).</li>
-                  <li>Haz clic en <strong>Implementar</strong> para guardar los cambios. ¡Listo! Ya enviará a la pestaña del mes correcto y guardará el REP.</li>
+                  <li>Abre tu documento de Google Sheets y en el menú superior haz clic en <strong>Extensiones &gt; Apps Script</strong>.</li>
+                  <li>Borra todo lo que esté en <strong>Código.gs</strong> y pega el código copiado de abajo.</li>
+                  <li>Haz clic en <strong>Guardar (icono de disquete)</strong> y luego en <strong>Implementar &gt; Nueva implementación</strong>.</li>
+                  <li>En el engrane selecciona <strong>Aplicación web</strong>:
+                    <ul className="list-disc list-inside pl-4 mt-1 text-[11px] text-slate-500 space-y-0.5">
+                      <li><strong>Ejecutar como:</strong> Yo (tu correo)</li>
+                      <li><strong>Quién tiene acceso:</strong> Cualquier usuario (Anyone)</li>
+                    </ul>
+                  </li>
+                  <li>Haz clic en <strong>Implementar</strong>, copia la URL de la aplicación web que termina en <em>/exec</em>, pégala aquí abajo y haz clic en <strong>Guardar URL</strong> y <strong>Probar Conexión</strong>.</li>
                 </ol>
               </div>
 
@@ -1420,7 +1468,7 @@ ${rawText}
                     className="text-[11px] text-emerald-700 hover:text-emerald-800 font-bold uppercase flex items-center gap-1 cursor-pointer"
                   >
                     <i className="fas fa-copy"></i>
-                    <span>{copiedScript ? 'Copiado' : 'Copiar todo'}</span>
+                    <span>{copiedScript ? 'Copiado' : 'Copiar todo el código'}</span>
                   </button>
                 </div>
                 <div className="relative">
@@ -1430,7 +1478,7 @@ ${rawText}
                 </div>
               </div>
 
-              {/* Webhook URL config */}
+              {/* Webhook URL config & test */}
               <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3">
                 <label className="block text-[11px] font-black uppercase text-slate-700 tracking-wider">
                   URL del Webhook de Google Apps Script
@@ -1450,9 +1498,28 @@ ${rawText}
                   >
                     Guardar URL
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleTestWebhook}
+                    disabled={testingWebhook}
+                    className="py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black uppercase transition-all shrink-0 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    <i className={`fas ${testingWebhook ? 'fa-spinner fa-spin' : 'fa-plug'}`}></i>
+                    <span>{testingWebhook ? 'Probando...' : 'Probar Conexión'}</span>
+                  </button>
                 </div>
+
+                {webhookTestResult && (
+                  <div className={`p-3 rounded-xl text-xs font-bold border transition-all ${
+                    webhookTestResult.success ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
+                  }`}>
+                    <i className={`fas ${webhookTestResult.success ? 'fa-check-circle text-emerald-600' : 'fa-exclamation-triangle text-rose-600'} mr-2`}></i>
+                    {webhookTestResult.message}
+                  </div>
+                )}
+
                 <p className="text-[10px] text-slate-400">
-                  Por defecto usa el webhook ya vinculado a tu hoja. Puedes modificarlo si realizas un nuevo despliegue.
+                  Por defecto usa el webhook ya vinculado a tu hoja. Si creas una nueva implementación en Apps Script, pega la nueva URL aquí y pruébala.
                 </p>
               </div>
             </div>
@@ -1514,19 +1581,19 @@ ${rawText}
             <div className="flex items-center gap-2 pt-1 border-t border-slate-800">
               {sheetsFeedback.type === 'success' ? (
                 <a
-                  href={GOOGLE_SHEET_URL}
+                  href={getGoogleSheetUrlForDate(sheetsFeedback.targetDate || (currentVoucher ? getReservationServiceDate(currentVoucher) : null))}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white text-center rounded-xl text-[11px] font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
                 >
                   <i className="fas fa-external-link-alt text-[10px]"></i>
-                  <span>VER HOJA EN GOOGLE SHEETS</span>
+                  <span>VER HOJA ({sheetsFeedback.sheetName || 'MES CORRESPONDIENTE'})</span>
                 </a>
               ) : (
                 <button
                   onClick={() => {
                     setSheetsFeedback(null);
-                    handleManualBackup();
+                    handleManualBackup(currentVoucher);
                   }}
                   className="flex-1 py-2 px-3 bg-amber-600 hover:bg-amber-500 text-white text-center rounded-xl text-[11px] font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
                 >
@@ -2167,7 +2234,7 @@ ${rawText}
                       type="text"
                       value={reservationSearch}
                       onChange={(e) => setReservationSearch(e.target.value)}
-                      placeholder="Buscar por pasajero, folio, servicio..."
+                      placeholder="Buscar por fecha (DD/MM/AAAA), hora (AM/PM), pasajero, rep, folio..."
                       className="w-full pl-9 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-all"
                     />
                     {reservationSearch && (
@@ -2225,12 +2292,32 @@ ${rawText}
                     const filtered = reservations.filter(r => {
                       if (!reservationSearch.trim()) return true;
                       const q = reservationSearch.toLowerCase().trim();
+                      const dateService = getReservationServiceDate(r).toLowerCase();
+                      const timeService = (r.departureTimeHotel || r.arrivalTime || r.time || '').toLowerCase();
+                      const repVal = (r.rep || r.agency || r.company || '').toLowerCase();
+                      const tourNameVal = (r.tourName || '').toLowerCase();
+                      const destVal = (r.destination || r.arrivalDestination || r.departureDestination || '').toLowerCase();
+                      const origVal = (r.origin || r.originDeparture || '').toLowerCase();
+                      const passVal = (r.name || r.arrivalName || r.departureName || '').toLowerCase();
+                      const codeVal = (r.reservationNo || r.id || '').toLowerCase();
+                      const sTypeVal = (r.serviceType || '').toLowerCase();
+                      const dateArrVal = (r.dateArrival || '').toLowerCase();
+                      const dateDepVal = (r.dateDeparture || '').toLowerCase();
+                      const longDate = formatDateToSpanishLong(dateService).toLowerCase();
+
                       return (
-                        (r.name && r.name.toLowerCase().includes(q)) ||
-                        (r.reservationNo && r.reservationNo.toLowerCase().includes(q)) ||
-                        (r.serviceType && r.serviceType.toLowerCase().includes(q)) ||
-                        (r.destination && r.destination.toLowerCase().includes(q)) ||
-                        (r.origin && r.origin.toLowerCase().includes(q))
+                        passVal.includes(q) ||
+                        codeVal.includes(q) ||
+                        sTypeVal.includes(q) ||
+                        destVal.includes(q) ||
+                        origVal.includes(q) ||
+                        repVal.includes(q) ||
+                        tourNameVal.includes(q) ||
+                        dateService.includes(q) ||
+                        dateArrVal.includes(q) ||
+                        dateDepVal.includes(q) ||
+                        longDate.includes(q) ||
+                        timeService.includes(q)
                       );
                     });
 
@@ -2249,7 +2336,7 @@ ${rawText}
                       );
                     }
 
-                    // Ordenar todas las reservaciones cronológicamente por fecha y hora de servicio
+                    // Ordenar todas las reservaciones estrictamente de forma cronológica por fecha y hora (de menor a mayor)
                     const sortedReservations = [...filtered].sort((a, b) => {
                       const dateA = getReservationServiceDate(a);
                       const dateB = getReservationServiceDate(b);
@@ -2258,11 +2345,11 @@ ${rawText}
                       const tsA = parseMexicanDateToTimestamp(dateA, timeA);
                       const tsB = parseMexicanDateToTimestamp(dateB, timeB);
                       if (tsA !== tsB && tsA > 0 && tsB > 0) {
-                        return tsA - tsB; // Más próximo primero
+                        return tsA - tsB; // Ascendente: de menor a mayor
                       }
                       if (tsA > 0) return -1;
                       if (tsB > 0) return 1;
-                      return (b.createdAt || '').localeCompare(a.createdAt || '');
+                      return (a.createdAt || '').localeCompare(b.createdAt || '');
                     });
 
                     return (

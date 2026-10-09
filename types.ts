@@ -44,6 +44,9 @@ export interface Reservation {
   observations?: string; // Notes
   dateArrival: string;
   dateDeparture: string;
+  date?: string; // General / service date
+  time?: string; // General / service time
+  tourDate?: string; // Tour service date
   origin: string; // Origen Llegada
   destination: string; // Referencia General
   
