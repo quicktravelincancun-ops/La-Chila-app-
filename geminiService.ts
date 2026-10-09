@@ -128,7 +128,7 @@ function parseDatesToMexicanFormat(text: string): Array<{ date: string; index: n
   const currentYear = new Date().getFullYear().toString();
 
   const monthNamesPattern = Object.keys(MONTHS_MAP).join('|');
-  const regexNamedDMY = new RegExp(`\\b(\\d{1,2})\\s*(?:de\\s+|of\\s+|[-/\\s]\\s*)(${monthNamesPattern})(?:\\s*(?:de\\s+|del?\\s+|,\\s*|[-/\\s]\\s*)(202\\d|\\d{2}))?\\b`, 'gi');
+  const regexNamedDMY = new RegExp(`\\b(\\d{1,2})\\s*(?:de\\s+|of\\s+|[-/\\s]\\s*)(${monthNamesPattern})(?:\\s*(?:de\\s+|del?\\s+|,\\s*|[-/\\s]\\s*)(20\\d{2}|\\d{2}))?\\b`, 'gi');
   let match;
   while ((match = regexNamedDMY.exec(text)) !== null) {
     const day = match[1].padStart(2, '0');
@@ -144,7 +144,7 @@ function parseDatesToMexicanFormat(text: string): Array<{ date: string; index: n
     }
   }
 
-  const regexNamedMDY = new RegExp(`\\b(${monthNamesPattern})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*,?\\s*(?:de\\s+|del?\\s+)?(202\\d|\\d{2}))?\\b`, 'gi');
+  const regexNamedMDY = new RegExp(`\\b(${monthNamesPattern})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*,?\\s*(?:de\\s+|del?\\s+)?(20\\d{2}|\\d{2}))?\\b`, 'gi');
   while ((match = regexNamedMDY.exec(text)) !== null) {
     const month = MONTHS_MAP[match[1].toLowerCase()];
     const day = match[2].padStart(2, '0');
@@ -162,7 +162,7 @@ function parseDatesToMexicanFormat(text: string): Array<{ date: string; index: n
     }
   }
 
-  const regexNumeric = /\b(\d{1,2})[-/](\d{1,2})[-/](202\d|\d{2})\b/g;
+  const regexNumeric = /\b(\d{1,2})[-/](\d{1,2})[-/](20\d{2}|\d{2})\b/g;
   while ((match = regexNumeric.exec(text)) !== null) {
     const p1 = parseInt(match[1], 10);
     const p2 = parseInt(match[2], 10);
@@ -371,14 +371,24 @@ export function extractReservationFieldsWithRegex(text: string): Partial<Reserva
   // 6. Dates (DD/MM/YYYY)
   const parsedDates = parseDatesToMexicanFormat(text);
   if (parsedDates.length > 0) {
-    if (result.serviceType === 'Solo Salida' || result.serviceType === 'Solo Traslado' || result.serviceType === 'Tour o Excursión' || result.serviceType === 'Circuito') {
+    if (result.serviceType === 'Solo Salida' || result.serviceType === 'Solo Traslado' || result.serviceType === 'Tour o Excursión') {
       result.dateDeparture = parsedDates[0].date;
+      result.dateArrival = '';
+      result.date = parsedDates[0].date;
+    } else if (result.serviceType === 'Circuito') {
       result.dateArrival = parsedDates[0].date;
+      result.dateDeparture = '';
+      result.date = parsedDates[0].date;
+    } else if (result.serviceType === 'Solo Llegada') {
+      result.dateArrival = parsedDates[0].date;
+      result.dateDeparture = '';
+      result.date = parsedDates[0].date;
     } else {
       result.dateArrival = parsedDates[0].date;
       if (parsedDates.length > 1) {
         result.dateDeparture = parsedDates[1].date;
       }
+      result.date = parsedDates[0].date;
     }
   }
 
@@ -473,9 +483,6 @@ export function normalizeReservationData(parsedData: any): Partial<Reservation> 
   if (normalized.passenger && !normalized.name) {
     normalized.name = String(normalized.passenger).trim();
   }
-  if (normalized.date && !normalized.dateArrival) {
-    normalized.dateArrival = toMexicanDateFormat(String(normalized.date));
-  }
   if (normalized.flight && !normalized.flightNoArrival) {
     normalized.flightNoArrival = String(normalized.flight).trim();
   }
@@ -506,7 +513,6 @@ export function normalizeReservationData(parsedData: any): Partial<Reservation> 
       delete normalized[k];
     }
   });
-
   // Normalize serviceType to valid dropdown options
   if (normalized.serviceType) {
     const st = String(normalized.serviceType).toLowerCase();
@@ -525,16 +531,29 @@ export function normalizeReservationData(parsedData: any): Partial<Reservation> 
     }
   }
 
-  if (normalized.serviceType === "Tour o Excursión" || normalized.serviceType === "Solo Salida") {
+  // Proper date assignment by service type
+  if (normalized.serviceType === "Tour o Excursión" || normalized.serviceType === "Solo Salida" || normalized.serviceType === "Solo Traslado") {
+    const targetDate = normalized.dateDeparture || normalized.date || normalized.dateArrival;
+    if (targetDate) {
+      normalized.dateDeparture = toMexicanDateFormat(String(targetDate));
+      normalized.date = normalized.dateDeparture;
+    }
+    normalized.dateArrival = ''; // NEVER set arrival date on tours, solo salida, or solo traslado
     if (normalized.origin && !normalized.originDeparture) {
       normalized.originDeparture = normalized.origin;
     }
     if (normalized.arrivalDestination && !normalized.originDeparture) {
       normalized.originDeparture = normalized.arrivalDestination;
     }
-    if (normalized.dateArrival && !normalized.dateDeparture) {
-      normalized.dateDeparture = normalized.dateArrival;
+  } else if (normalized.serviceType === "Solo Llegada") {
+    const targetDate = normalized.dateArrival || normalized.date;
+    if (targetDate) {
+      normalized.dateArrival = toMexicanDateFormat(String(targetDate));
+      normalized.date = normalized.dateArrival;
     }
+    normalized.dateDeparture = '';
+  } else if (normalized.date && !normalized.dateArrival) {
+    normalized.dateArrival = toMexicanDateFormat(String(normalized.date));
   }
 
   if (normalized.serviceType === "Llegada y Salida") {

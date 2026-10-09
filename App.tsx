@@ -22,6 +22,9 @@ import {
   copyTextToClipboard,
   getReservationRows,
   getTargetSheetNameForDate,
+  getReservationServiceDate,
+  parseMexicanDateToTimestamp,
+  sortReservationsChronologically,
   APPS_SCRIPT_REWRITE_CODE,
   getGoogleSheetsWebhookUrl,
   openWhatsAppDirectly
@@ -106,8 +109,8 @@ const App: React.FC = () => {
     departureName: '',
     departureDestination: '',
     peopleCountDeparture: 1,
-    dateArrival: toMexicanDateFormat(new Date().toISOString().split('T')[0]),
-    dateDeparture: toMexicanDateFormat(new Date().toISOString().split('T')[0]),
+    dateArrival: '',
+    dateDeparture: '',
     arrivalTime: '',
     flightNoArrival: '',
     airlineArrival: '',
@@ -146,7 +149,44 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        setReservations(parsed);
+        // Sanitizar y limpiar reservas previas que tenían fechas falsas de llegada (ej. tours con dateArrival sucio)
+        const sanitized = Array.isArray(parsed) ? parsed.map((r: any) => {
+          const service = String(r.serviceType || '').toLowerCase();
+          if (service.includes('tour') || service.includes('excursi')) {
+            const tourDate = r.tourDate || r.dateDeparture || r.date || r.extraTours?.[0]?.dateDeparture;
+            return {
+              ...r,
+              date: tourDate || r.date,
+              dateDeparture: tourDate || r.dateDeparture,
+              dateArrival: '', // Limpiar fecha falsa de llegada en tours
+            };
+          }
+          if (service.includes('salida') && !service.includes('llegada')) {
+            return {
+              ...r,
+              date: r.dateDeparture || r.date,
+              dateArrival: '',
+            };
+          }
+          if (service.includes('traslado')) {
+            return {
+              ...r,
+              date: r.dateDeparture || r.date,
+              dateArrival: '',
+            };
+          }
+          if (service.includes('solo llegada')) {
+            return {
+              ...r,
+              date: r.dateArrival || r.date,
+              dateDeparture: '',
+            };
+          }
+          return r;
+        }) : [];
+        const sorted = sortReservationsChronologically(sanitized);
+        setReservations(sorted);
+        localStorage.setItem('qt_reservations', JSON.stringify(sorted));
       } catch (e) {
         console.error("Error parsing saved reservations:", e);
       }
@@ -158,6 +198,13 @@ const App: React.FC = () => {
       try {
         const { formData: savedDraft, editingId: savedEditingId, savedAt } = JSON.parse(draft);
         if (savedDraft) {
+          const service = String(savedDraft.serviceType || '').toLowerCase();
+          if (service.includes('tour') || service.includes('excursi') || (service.includes('salida') && !service.includes('llegada')) || service.includes('traslado')) {
+            savedDraft.dateArrival = '';
+          }
+          if (savedDraft.dateArrival) savedDraft.dateArrival = toMexicanDateFormat(savedDraft.dateArrival);
+          if (savedDraft.dateDeparture) savedDraft.dateDeparture = toMexicanDateFormat(savedDraft.dateDeparture);
+          if (savedDraft.date) savedDraft.date = toMexicanDateFormat(savedDraft.date);
           setFormData(savedDraft);
           if (savedEditingId) setEditingId(savedEditingId);
           if (savedAt) {
@@ -405,20 +452,60 @@ const App: React.FC = () => {
         resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 1;
       }
 
+      const isTour = /tour/i.test(formData.serviceType || '') || /excursi/i.test(formData.serviceType || '');
+      const isSalida = /salida/i.test(formData.serviceType || '') && !/llegada/i.test(formData.serviceType || '');
+      const isTraslado = /traslado/i.test(formData.serviceType || '');
+      const isCircuito = /circuito/i.test(formData.serviceType || '');
+      const isArrivalOnly = /solo llegada/i.test(formData.serviceType || '');
+
+      let finalArrivalDate = '';
+      let finalDepartureDate = '';
+      let finalGeneralDate = '';
+
+      if (isTour) {
+        const rawDate = formData.tourDate || formData.dateDeparture || formData.date || formData.extraTours?.[0]?.dateDeparture || formData.dateArrival || '';
+        finalGeneralDate = toMexicanDateFormat(rawDate);
+        finalDepartureDate = finalGeneralDate;
+        finalArrivalDate = ''; // NUNCA poner fecha de llegada en tours
+      } else if (isSalida || isTraslado) {
+        const rawDate = formData.dateDeparture || formData.date || formData.dateArrival || '';
+        finalGeneralDate = toMexicanDateFormat(rawDate);
+        finalDepartureDate = finalGeneralDate;
+        finalArrivalDate = ''; // NUNCA poner fecha de llegada en solo salida o traslado
+      } else if (isCircuito) {
+        const rawDate = formData.circuitoLegs?.[0]?.date || formData.dateArrival || formData.dateDeparture || formData.date || '';
+        finalGeneralDate = toMexicanDateFormat(rawDate);
+        finalArrivalDate = finalGeneralDate;
+        finalDepartureDate = '';
+      } else if (isArrivalOnly) {
+        const rawDate = formData.dateArrival || formData.date || formData.dateDeparture || '';
+        finalGeneralDate = toMexicanDateFormat(rawDate);
+        finalArrivalDate = finalGeneralDate;
+        finalDepartureDate = '';
+      } else {
+        // Llegada y Salida (redondo)
+        const rawArr = formData.dateArrival || formData.date || formData.dateDeparture || '';
+        const rawDep = formData.dateDeparture || formData.date || formData.dateArrival || '';
+        finalArrivalDate = toMexicanDateFormat(rawArr);
+        finalDepartureDate = toMexicanDateFormat(rawDep);
+        finalGeneralDate = finalArrivalDate || finalDepartureDate;
+      }
+
       const finalData: any = { 
         ...formData, 
         name: resolvedName,
         peopleCount: resolvedPeopleCount,
-        arrivalName: formData.arrivalName || resolvedName,
-        departureName: formData.departureName || resolvedName,
-        origin: formData.origin || 'Aeropuerto de Cancún',
-        arrivalDestination: formData.arrivalDestination || formData.destination || '',
+        arrivalName: isArrivalOnly || (!isTour && !isSalida && !isTraslado) ? (formData.arrivalName || resolvedName) : '',
+        departureName: (!isArrivalOnly) ? (formData.departureName || resolvedName) : '',
+        origin: isTour ? (formData.originDeparture || 'Hotel / Punto de Encuentro') : (formData.origin || 'Aeropuerto de Cancún'),
+        arrivalDestination: isTour ? (formData.tourName || 'Tour') : (formData.arrivalDestination || formData.destination || ''),
         originDeparture: formData.originDeparture || formData.arrivalDestination || formData.destination || '',
-        departureDestination: formData.departureDestination || 'Aeropuerto de Cancún',
+        departureDestination: isTour ? (formData.tourName || 'Tour') : (formData.departureDestination || 'Aeropuerto de Cancún'),
         peopleCountArrival: Number(formData.peopleCountArrival) || Number(resolvedPeopleCount) || 1,
         peopleCountDeparture: Number(formData.peopleCountDeparture) || Number(resolvedPeopleCount) || 1,
-        dateArrival: formData.dateArrival || formData.date,
-        dateDeparture: formData.dateDeparture || formData.date || formData.dateArrival,
+        date: finalGeneralDate,
+        dateArrival: finalArrivalDate,
+        dateDeparture: finalDepartureDate,
       };
 
       let updated: Reservation[];
@@ -458,9 +545,10 @@ const App: React.FC = () => {
         }
       }
 
-      // a) Save reservation into app local memory
-      setReservations(updated);
-      localStorage.setItem('qt_reservations', JSON.stringify(updated));
+      // a) Save reservation into app local memory (ordenada cronológicamente)
+      const sortedUpdated = sortReservationsChronologically(updated);
+      setReservations(sortedUpdated);
+      localStorage.setItem('qt_reservations', JSON.stringify(sortedUpdated));
       localStorage.removeItem('qt_draft_voucher');
       setLastAutoSaved(null);
       setCurrentVoucher(savedRes);
@@ -483,7 +571,7 @@ const App: React.FC = () => {
       }
 
       // c) Feedback explícito mostrando confirmación de filas y hoja correspondiente
-      const targetSheetName = getTargetSheetNameForDate(savedRes.dateArrival || savedRes.dateDeparture || (savedRes as any).date);
+      const targetSheetName = getTargetSheetNameForDate(getReservationServiceDate(savedRes));
       const sheetDetail = targetSheetName ? ` (Hoja: ${targetSheetName})` : '';
       const rows = getReservationRows(savedRes);
       const isRoundTrip = rows.length > 1;
@@ -582,6 +670,11 @@ const App: React.FC = () => {
   const handleEdit = (res: Reservation) => {
     setEditingId(res.id);
     const { id, createdAt, ...dataToEdit } = res;
+    // Limpiar dateArrival espurio si es tour, solo salida o traslado para evitar fechas de llegada fantasma
+    const service = String(res.serviceType || '').toLowerCase();
+    if (service.includes('tour') || service.includes('excursi') || (service.includes('salida') && !service.includes('llegada')) || service.includes('traslado')) {
+      dataToEdit.dateArrival = '';
+    }
     // Merge with initial state to ensure all fields exist and keep reservationNo intact
     setFormData({
       ...initialFormState,
@@ -765,11 +858,52 @@ ${rawText}
       resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 0;
     }
 
+    const isTour = /tour/i.test(formData.serviceType || '') || /excursi/i.test(formData.serviceType || '');
+    const isSalida = /salida/i.test(formData.serviceType || '') && !/llegada/i.test(formData.serviceType || '');
+    const isTraslado = /traslado/i.test(formData.serviceType || '');
+    const isCircuito = /circuito/i.test(formData.serviceType || '');
+    const isArrivalOnly = /solo llegada/i.test(formData.serviceType || '');
+
+    let finalArrivalDate = '';
+    let finalDepartureDate = '';
+    let finalGeneralDate = '';
+
+    if (isTour) {
+      const rawDate = formData.tourDate || formData.dateDeparture || formData.date || formData.extraTours?.[0]?.dateDeparture || formData.dateArrival || '';
+      finalGeneralDate = toMexicanDateFormat(rawDate);
+      finalDepartureDate = finalGeneralDate;
+      finalArrivalDate = '';
+    } else if (isSalida || isTraslado) {
+      const rawDate = formData.dateDeparture || formData.date || formData.dateArrival || '';
+      finalGeneralDate = toMexicanDateFormat(rawDate);
+      finalDepartureDate = finalGeneralDate;
+      finalArrivalDate = '';
+    } else if (isCircuito) {
+      const rawDate = formData.circuitoLegs?.[0]?.date || formData.dateArrival || formData.dateDeparture || formData.date || '';
+      finalGeneralDate = toMexicanDateFormat(rawDate);
+      finalArrivalDate = finalGeneralDate;
+      finalDepartureDate = '';
+    } else if (isArrivalOnly) {
+      const rawDate = formData.dateArrival || formData.date || formData.dateDeparture || '';
+      finalGeneralDate = toMexicanDateFormat(rawDate);
+      finalArrivalDate = finalGeneralDate;
+      finalDepartureDate = '';
+    } else {
+      const rawArr = formData.dateArrival || formData.date || formData.dateDeparture || '';
+      const rawDep = formData.dateDeparture || formData.date || formData.dateArrival || '';
+      finalArrivalDate = toMexicanDateFormat(rawArr);
+      finalDepartureDate = toMexicanDateFormat(rawDep);
+      finalGeneralDate = finalArrivalDate || finalDepartureDate;
+    }
+
     const currentFormDataRes: Reservation = {
       ...formData,
       id: editingId ? String(editingId) : (formData.reservationNo || generateNewId()),
       name: resolvedName,
       peopleCount: resolvedPeopleCount,
+      date: finalGeneralDate,
+      dateArrival: finalArrivalDate,
+      dateDeparture: finalDepartureDate,
       createdAt: new Date().toISOString()
     } as Reservation;
 
@@ -783,21 +917,21 @@ ${rawText}
       formData.departureTimeHotel
     );
 
-    const resToSend: Reservation = targetRes || (hasFormData ? currentFormDataRes : (currentVoucher || currentFormDataRes));
+    const resToSend: Reservation = targetRes || currentVoucher || (hasFormData ? currentFormDataRes : currentFormDataRes);
 
     setSyncing(true);
     let success = false;
     try {
-      success = await sendReservationToGoogleSheets(resToSend);
-      const targetSheetName = getTargetSheetNameForDate(resToSend.dateArrival || resToSend.dateDeparture || (resToSend as any).date);
+      success = await sendReservationToGoogleSheets(resToSend, Boolean(editingId));
+      const targetSheetName = getTargetSheetNameForDate(getReservationServiceDate(resToSend));
       const sheetDetail = targetSheetName ? ` (Hoja: ${targetSheetName})` : '';
       if (success) {
         setSheetsFeedback({
           show: true,
           type: 'success',
-          message: `✓ Guardado con éxito en Google Sheets${sheetDetail}`
+          message: `✓ Guardado con éxito en Google Sheets${sheetDetail} y ordenado cronológicamente`
         });
-        showUIMessage(`✓ Guardado con éxito en Google Sheets${sheetDetail}`);
+        showUIMessage(`✓ Guardado con éxito en Google Sheets${sheetDetail} y ordenado cronológicamente`);
       } else {
         setSheetsFeedback({
           show: true,
@@ -835,21 +969,60 @@ ${rawText}
       resolvedPeopleCount = formData.peopleCountDeparture || formData.peopleCount || 1;
     }
 
+    const isTour = /tour/i.test(formData.serviceType || '') || /excursi/i.test(formData.serviceType || '');
+    const isSalida = /salida/i.test(formData.serviceType || '') && !/llegada/i.test(formData.serviceType || '');
+    const isTraslado = /traslado/i.test(formData.serviceType || '');
+    const isCircuito = /circuito/i.test(formData.serviceType || '');
+    const isArrivalOnly = /solo llegada/i.test(formData.serviceType || '');
+
+    let finalArrivalDate = '';
+    let finalDepartureDate = '';
+    let finalGeneralDate = '';
+
+    if (isTour) {
+      const rawDate = formData.tourDate || formData.dateDeparture || formData.date || formData.extraTours?.[0]?.dateDeparture || formData.dateArrival || '';
+      finalGeneralDate = toMexicanDateFormat(rawDate);
+      finalDepartureDate = finalGeneralDate;
+      finalArrivalDate = '';
+    } else if (isSalida || isTraslado) {
+      const rawDate = formData.dateDeparture || formData.date || formData.dateArrival || '';
+      finalGeneralDate = toMexicanDateFormat(rawDate);
+      finalDepartureDate = finalGeneralDate;
+      finalArrivalDate = '';
+    } else if (isCircuito) {
+      const rawDate = formData.circuitoLegs?.[0]?.date || formData.dateArrival || formData.dateDeparture || formData.date || '';
+      finalGeneralDate = toMexicanDateFormat(rawDate);
+      finalArrivalDate = finalGeneralDate;
+      finalDepartureDate = '';
+    } else if (isArrivalOnly) {
+      const rawDate = formData.dateArrival || formData.date || formData.dateDeparture || '';
+      finalGeneralDate = toMexicanDateFormat(rawDate);
+      finalArrivalDate = finalGeneralDate;
+      finalDepartureDate = '';
+    } else {
+      const rawArr = formData.dateArrival || formData.date || formData.dateDeparture || '';
+      const rawDep = formData.dateDeparture || formData.date || formData.dateArrival || '';
+      finalArrivalDate = toMexicanDateFormat(rawArr);
+      finalDepartureDate = toMexicanDateFormat(rawDep);
+      finalGeneralDate = finalArrivalDate || finalDepartureDate;
+    }
+
     const currentFormDataRes: Reservation = {
       ...formData,
       id: editingId ? String(editingId) : (formData.reservationNo || generateNewId()),
       name: resolvedName,
       peopleCount: resolvedPeopleCount,
-      arrivalName: formData.arrivalName || resolvedName,
-      departureName: formData.departureName || resolvedName,
+      arrivalName: isArrivalOnly || (!isTour && !isSalida && !isTraslado) ? (formData.arrivalName || resolvedName) : '',
+      departureName: (!isArrivalOnly) ? (formData.departureName || resolvedName) : '',
+      origin: isTour ? (formData.originDeparture || 'Hotel / Punto de Encuentro') : (formData.origin || 'Aeropuerto de Cancún'),
+      arrivalDestination: isTour ? (formData.tourName || 'Tour') : (formData.arrivalDestination || formData.destination || ''),
+      originDeparture: formData.originDeparture || formData.arrivalDestination || formData.destination || '',
+      departureDestination: isTour ? (formData.tourName || 'Tour') : (formData.departureDestination || 'Aeropuerto de Cancún'),
       peopleCountArrival: Number(formData.peopleCountArrival) || Number(resolvedPeopleCount) || 1,
       peopleCountDeparture: Number(formData.peopleCountDeparture) || Number(resolvedPeopleCount) || 1,
-      origin: formData.origin || 'Aeropuerto de Cancún',
-      arrivalDestination: formData.arrivalDestination || formData.destination || '',
-      originDeparture: formData.originDeparture || formData.arrivalDestination || formData.destination || '',
-      departureDestination: formData.departureDestination || 'Aeropuerto de Cancún',
-      dateArrival: formData.dateArrival || formData.date,
-      dateDeparture: formData.dateDeparture || formData.date || formData.dateArrival,
+      date: finalGeneralDate,
+      dateArrival: finalArrivalDate,
+      dateDeparture: finalDepartureDate,
       createdAt: new Date().toISOString()
     } as Reservation;
 
@@ -863,7 +1036,8 @@ ${rawText}
       formData.departureTimeHotel
     );
 
-    const resToBackup = targetRes || (hasFormData ? currentFormDataRes : (currentVoucher || currentFormDataRes));
+    // Priorizar el voucher activo o targetRes si existen para respetar sus fechas confirmadas
+    const resToBackup = targetRes || currentVoucher || (hasFormData ? currentFormDataRes : currentFormDataRes);
 
     setSyncing(true);
 
@@ -885,28 +1059,32 @@ ${rawText}
       console.warn("Background webhook sync error:", e);
     }
 
-    // 5. Retroalimentación clara al usuario
+    // 5. Retroalimentación clara al usuario con nombre de hoja destino
+    const targetServiceDate = getReservationServiceDate(resToBackup) || rows[0]?.date || resToBackup.date;
+    const targetSheet = getTargetSheetNameForDate(targetServiceDate);
+    const sheetInfo = targetSheet ? ` en la hoja "${targetSheet}"` : '';
     const alertMsg = isRoundTrip
-      ? "✓ Ambas filas (Llegada y Salida) copiadas al portapapeles. Abriendo Google Sheets..."
-      : "✓ Fila copiada al portapapeles. Abriendo Google Sheets para pegar.";
+      ? `✓ Ambas filas copiadas. Pégalas${sheetInfo} de Google Sheets.`
+      : `✓ Fila copiada (${targetServiceDate || ''}). Pégala${sheetInfo} de Google Sheets.`;
     showUIMessage(alertMsg);
     setSheetsFeedback({
       show: true,
       type: 'success',
-      message: alertMsg
+      message: `${alertMsg} Ordenado cronológicamente.`
     });
 
-    // 6. Abrir la URL del documento de Google Sheets
+    // 6. Abrir la URL del documento de Google Sheets dirigida directamente a la pestaña del mes correspondiente
+    const targetSheetUrl = getGoogleSheetUrlForDate(targetServiceDate);
     setTimeout(() => {
       setSyncing(false);
       try {
         if (isAndroidWebView()) {
-          openInSystemBrowser(GOOGLE_SHEET_URL);
+          openInSystemBrowser(targetSheetUrl);
         } else {
-          const win = window.open(GOOGLE_SHEET_URL, '_blank', 'noopener,noreferrer');
+          const win = window.open(targetSheetUrl, '_blank', 'noopener,noreferrer');
           if (!win) {
             const a = document.createElement('a');
-            a.href = GOOGLE_SHEET_URL;
+            a.href = targetSheetUrl;
             a.target = '_blank';
             a.rel = 'noopener noreferrer';
             document.body.appendChild(a);
@@ -1017,14 +1195,14 @@ ${rawText}
               </div>
               <div className="flex items-center gap-2">
                 <a
-                  href={GOOGLE_SHEET_URL}
+                  href={getGoogleSheetUrlForDate(getReservationServiceDate(showVoucherModal.reservation))}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hidden sm:inline-flex items-center gap-1.5 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase transition-all shadow-sm cursor-pointer"
-                  title="Abrir hoja de Google Sheets en nueva pestaña"
+                  title="Abrir hoja de Google Sheets en la pestaña del mes correspondiente"
                 >
                   <i className="fas fa-external-link-alt text-[9px]"></i>
-                  <span>VER HOJA EN GOOGLE SHEETS</span>
+                  <span>VER EN SHEETS ({getTargetSheetNameForDate(getReservationServiceDate(showVoucherModal.reservation)) || 'HOJA'})</span>
                 </a>
                 <button 
                   onClick={() => setShowVoucherModal({ show: false, reservation: null })} 
@@ -1039,16 +1217,16 @@ ${rawText}
             <div className="bg-emerald-50 border-b border-emerald-100 px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs no-print shrink-0">
               <div className="flex items-center gap-2 text-emerald-800 font-bold">
                 <i className="fas fa-check-circle text-emerald-600 text-sm"></i>
-                <span>✓ Guardado con éxito en Google Sheets</span>
+                <span>✓ Registrado en Google Sheets (Hoja: {getTargetSheetNameForDate(getReservationServiceDate(showVoucherModal.reservation)) || 'Mes correspondiente'})</span>
               </div>
               <a
-                href={GOOGLE_SHEET_URL}
+                href={getGoogleSheetUrlForDate(getReservationServiceDate(showVoucherModal.reservation))}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex sm:hidden items-center gap-1 py-1 px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer"
               >
                 <i className="fas fa-external-link-alt text-[8px]"></i>
-                <span>VER HOJA</span>
+                <span>VER EN SHEETS</span>
               </a>
             </div>
             
@@ -2071,15 +2249,37 @@ ${rawText}
                       );
                     }
 
+                    // Ordenar todas las reservaciones cronológicamente por fecha y hora de servicio
+                    const sortedReservations = [...filtered].sort((a, b) => {
+                      const dateA = getReservationServiceDate(a);
+                      const dateB = getReservationServiceDate(b);
+                      const timeA = a.departureTimeHotel || a.arrivalTime || a.time || '';
+                      const timeB = b.departureTimeHotel || b.arrivalTime || b.time || '';
+                      const tsA = parseMexicanDateToTimestamp(dateA, timeA);
+                      const tsB = parseMexicanDateToTimestamp(dateB, timeB);
+                      if (tsA !== tsB && tsA > 0 && tsB > 0) {
+                        return tsA - tsB; // Más próximo primero
+                      }
+                      if (tsA > 0) return -1;
+                      if (tsB > 0) return 1;
+                      return (b.createdAt || '').localeCompare(a.createdAt || '');
+                    });
+
                     return (
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-                        {filtered.map(res => {
+                        {sortedReservations.map(res => {
                           const depMxn = Number(res.depositMxn || 0);
                           const payMxn = Number(res.toPayMxn || 0);
                           const depUsd = Number(res.depositUsd || 0);
                           const payUsd = Number(res.toPayUsd || 0);
                           const hasMxn = depMxn > 0 || payMxn > 0;
                           const hasUsd = depUsd > 0 || payUsd > 0;
+
+                          const isTour = /tour/i.test(res.serviceType || '') || /excursi/i.test(res.serviceType || '');
+                          const isSalida = /salida/i.test(res.serviceType || '') && !/llegada/i.test(res.serviceType || '');
+                          const isTraslado = /traslado/i.test(res.serviceType || '');
+                          const isCircuito = /circuito/i.test(res.serviceType || '');
+                          const isArrivalOnly = /solo llegada/i.test(res.serviceType || '');
 
                           return (
                             <div 
@@ -2132,37 +2332,33 @@ ${rawText}
 
                                 {/* Route, Dates & Times */}
                                 <div className="bg-slate-50 p-3 sm:p-3.5 rounded-2xl border border-slate-100 space-y-1.5 text-xs">
-                                  {(res.origin || res.destination || res.arrivalDestination) && (
+                                  {(res.origin || res.destination || res.arrivalDestination || res.originDeparture) && (
                                     <div className="flex items-start gap-2 text-slate-700">
                                       <i className="fas fa-map-marker-alt text-blue-500 text-xs mt-0.5 shrink-0"></i>
                                       <div className="leading-snug">
                                         <span className="font-bold text-slate-500 text-[10px] uppercase mr-1">Ruta:</span>
-                                        <span className="font-bold">{res.origin || 'Aeropuerto'}</span>
+                                        <span className="font-bold">{res.origin || res.originDeparture || 'Aeropuerto'}</span>
                                         <span className="mx-1 text-slate-400">➔</span>
-                                        <span className="font-bold">{res.destination || res.arrivalDestination || 'Hotel / Destino'}</span>
+                                        <span className="font-bold">{res.destination || res.arrivalDestination || res.departureDestination || 'Hotel / Destino'}</span>
                                       </div>
                                     </div>
                                   )}
 
-                                  {res.dateArrival && (
-                                    <div className="flex items-center gap-2 text-slate-700 flex-wrap">
-                                      <i className="fas fa-plane-arrival text-emerald-500 text-xs shrink-0"></i>
-                                      <span className="font-bold text-slate-500 text-[10px] uppercase">Llegada:</span>
-                                      <span className="font-bold">{res.dateArrival}</span>
-                                      {res.arrivalTime && <span className="text-slate-600 font-medium">({res.arrivalTime} hrs)</span>}
-                                      {res.flightNoArrival && (
-                                        <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200/60">
-                                          Vuelo: {res.flightNoArrival}
-                                        </span>
-                                      )}
+                                  {/* Fechas según el tipo de servicio */}
+                                  {isTour ? (
+                                    <div className="flex items-center gap-2 text-purple-700 flex-wrap">
+                                      <i className="fas fa-mountain text-purple-500 text-xs shrink-0"></i>
+                                      <span className="font-bold text-slate-500 text-[10px] uppercase">Excursión:</span>
+                                      <span className="font-bold">{res.tourName || 'Tour'}</span>
+                                      <span className="text-slate-300">|</span>
+                                      <span className="font-bold">{res.dateDeparture || res.date}</span>
+                                      {res.departureTimeHotel && <span className="text-slate-600 font-medium">(Pick-up {res.departureTimeHotel} hrs)</span>}
                                     </div>
-                                  )}
-
-                                  {res.dateDeparture && (
+                                  ) : (isSalida || isTraslado) ? (
                                     <div className="flex items-center gap-2 text-slate-700 flex-wrap">
                                       <i className="fas fa-plane-departure text-teal-500 text-xs shrink-0"></i>
-                                      <span className="font-bold text-slate-500 text-[10px] uppercase">Salida:</span>
-                                      <span className="font-bold">{res.dateDeparture}</span>
+                                      <span className="font-bold text-slate-500 text-[10px] uppercase">{isTraslado ? 'Traslado:' : 'Salida:'}</span>
+                                      <span className="font-bold">{res.dateDeparture || res.date}</span>
                                       {res.departureTimeHotel && <span className="text-slate-600 font-medium">(Pick-up {res.departureTimeHotel} hrs)</span>}
                                       {res.departureTimeFlight && (
                                         <span className="bg-teal-50 text-teal-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-teal-200/60">
@@ -2170,6 +2366,54 @@ ${rawText}
                                         </span>
                                       )}
                                     </div>
+                                  ) : isArrivalOnly ? (
+                                    <div className="flex items-center gap-2 text-slate-700 flex-wrap">
+                                      <i className="fas fa-plane-arrival text-emerald-500 text-xs shrink-0"></i>
+                                      <span className="font-bold text-slate-500 text-[10px] uppercase">Llegada:</span>
+                                      <span className="font-bold">{res.dateArrival || res.date}</span>
+                                      {res.arrivalTime && <span className="text-slate-600 font-medium">({res.arrivalTime} hrs)</span>}
+                                      {res.flightNoArrival && (
+                                        <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200/60">
+                                          Vuelo: {res.flightNoArrival}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : isCircuito ? (
+                                    <div className="flex items-center gap-2 text-slate-700 flex-wrap">
+                                      <i className="fas fa-route text-blue-500 text-xs shrink-0"></i>
+                                      <span className="font-bold text-slate-500 text-[10px] uppercase">Circuito:</span>
+                                      <span className="font-bold">{res.circuitoLegs?.[0]?.date || res.dateArrival || res.date}</span>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {res.dateArrival && (
+                                        <div className="flex items-center gap-2 text-slate-700 flex-wrap">
+                                          <i className="fas fa-plane-arrival text-emerald-500 text-xs shrink-0"></i>
+                                          <span className="font-bold text-slate-500 text-[10px] uppercase">Llegada:</span>
+                                          <span className="font-bold">{res.dateArrival}</span>
+                                          {res.arrivalTime && <span className="text-slate-600 font-medium">({res.arrivalTime} hrs)</span>}
+                                          {res.flightNoArrival && (
+                                            <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200/60">
+                                              Vuelo: {res.flightNoArrival}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+
+                                      {res.dateDeparture && (
+                                        <div className="flex items-center gap-2 text-slate-700 flex-wrap">
+                                          <i className="fas fa-plane-departure text-teal-500 text-xs shrink-0"></i>
+                                          <span className="font-bold text-slate-500 text-[10px] uppercase">Salida:</span>
+                                          <span className="font-bold">{res.dateDeparture}</span>
+                                          {res.departureTimeHotel && <span className="text-slate-600 font-medium">(Pick-up {res.departureTimeHotel} hrs)</span>}
+                                          {res.departureTimeFlight && (
+                                            <span className="bg-teal-50 text-teal-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-teal-200/60">
+                                              Vuelo: {res.departureTimeFlight}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                    </>
                                   )}
                                 </div>
 

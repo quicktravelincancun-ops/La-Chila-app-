@@ -13,28 +13,44 @@ export const ENGLISH_MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
+export const SPANISH_MONTHS_MAP: Record<string, string> = {
+  enero: '01', ene: '01', january: '01', jan: '01',
+  febrero: '02', feb: '02', february: '02', feb: '02',
+  marzo: '03', mar: '03', march: '03',
+  abril: '04', abr: '04', april: '04', apr: '04',
+  mayo: '05', may: '05',
+  junio: '06', jun: '06', june: '06',
+  julio: '07', jul: '07', july: '07',
+  agosto: '08', ago: '08', august: '08', aug: '08',
+  septiembre: '09', sep: '09', setiembre: '09', sept: '09', september: '09',
+  octubre: '10', oct: '10', october: '10',
+  noviembre: '11', nov: '11', november: '11',
+  diciembre: '12', dic: '12', december: '12', dec: '12'
+};
+
 /**
- * Converts any date format (YYYY-MM-DD, ISO string, timestamps) to standard Mexican DD/MM/YYYY format.
+ * Converts any date format (YYYY-MM-DD, ISO string, timestamps, "19 de enero del 2027") to standard Mexican DD/MM/YYYY format.
  * E.g. "2026-09-27" -> "27/09/2026"
+ * E.g. "19 de enero del 2027" -> "19/01/2027"
  */
 export function toMexicanDateFormat(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
-  const clean = dateStr.trim();
+  const clean = String(dateStr).trim();
   if (!clean) return '';
 
-  // Already DD/MM/YYYY
+  // 1. Already DD/MM/YYYY
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(clean)) {
     const [d, m, y] = clean.split('/');
     return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
   }
 
-  // DD-MM-YYYY
+  // 2. DD-MM-YYYY
   if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(clean)) {
     const [d, m, y] = clean.split('-');
     return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
   }
 
-  // YYYY-MM-DD or YYYY/MM/DD
+  // 3. YYYY-MM-DD or YYYY/MM/DD
   const isoMatch = clean.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
   if (isoMatch) {
     const y = isoMatch[1];
@@ -43,7 +59,48 @@ export function toMexicanDateFormat(dateStr: string | null | undefined): string 
     return `${d}/${m}/${y}`;
   }
 
-  // Only attempt JS Date parsing if string looks like a full date (at least 8 chars and contains delimiters)
+  // 4. Spanish / Text date formats (e.g. "19 de enero del 2027", "19 de Enero de 2027", "19 enero 2027", "19-ene-2027")
+  const monthNamesPattern = Object.keys(SPANISH_MONTHS_MAP).join('|');
+  const dmyTextMatch = clean.match(new RegExp(`(?:^|\\b)(\\d{1,2})\\s*(?:de\\s+|[-/\\s]\\s*)?(${monthNamesPattern})(?:\\s*(?:de\\s+|del?\\s+|,?\\s*|[-/\\s]\\s*)(\\d{2,4}))?`, 'i'));
+  if (dmyTextMatch) {
+    const day = dmyTextMatch[1].padStart(2, '0');
+    const month = SPANISH_MONTHS_MAP[dmyTextMatch[2].toLowerCase()];
+    let year = dmyTextMatch[3];
+    if (!year) {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      const mNum = parseInt(month, 10);
+      year = (mNum < currentMonth - 2) ? String(currentYear + 1) : String(currentYear);
+    } else if (year.length === 2) {
+      year = `20${year}`;
+    }
+    if (month && parseInt(day, 10) >= 1 && parseInt(day, 10) <= 31) {
+      return `${day}/${month}/${year}`;
+    }
+  }
+
+  // 5. Month-first text date formats (e.g. "Enero 19, 2027" or "Jan 19 2027")
+  const mdyTextMatch = clean.match(new RegExp(`(?:^|\\b)(${monthNamesPattern})\\s*[-/\\s]?\\s*(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*(?:de\\s+|del?\\s+|,?\\s*|[-/\\s]\\s*)(\\d{2,4}))?`, 'i'));
+  if (mdyTextMatch) {
+    const month = SPANISH_MONTHS_MAP[mdyTextMatch[1].toLowerCase()];
+    const day = mdyTextMatch[2].padStart(2, '0');
+    let year = mdyTextMatch[3];
+    if (!year) {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      const mNum = parseInt(month, 10);
+      year = (mNum < currentMonth - 2) ? String(currentYear + 1) : String(currentYear);
+    } else if (year.length === 2) {
+      year = `20${year}`;
+    }
+    if (month && parseInt(day, 10) >= 1 && parseInt(day, 10) <= 31) {
+      return `${day}/${month}/${year}`;
+    }
+  }
+
+  // 6. Attempt JS Date parsing if string looks like a date
   if (clean.length >= 8 && /[-/.\s]/.test(clean)) {
     const parsed = new Date(clean);
     if (!isNaN(parsed.getTime())) {
@@ -60,11 +117,12 @@ export function toMexicanDateFormat(dateStr: string | null | undefined): string 
 }
 
 /**
- * Converts Mexican date DD/MM/YYYY to ISO YYYY-MM-DD for native HTML date controls if needed.
+ * Converts Mexican date DD/MM/YYYY or text date to ISO YYYY-MM-DD for native HTML date controls.
  */
 export function toISOFormat(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
-  const clean = dateStr.trim();
+  const mex = toMexicanDateFormat(dateStr);
+  const clean = mex || String(dateStr).trim();
   if (!clean) return '';
 
   // Already YYYY-MM-DD
@@ -160,6 +218,33 @@ export function formatDateForLanguage(dateStr: string | null | undefined, lang: 
 export const GOOGLE_SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxjCU_mXf5cF_jdFFOzXhRnE10h45onjqt8-0u6fpwCtNGlDatWhWWLWpLOTX9JjA1r/exec';
 
 /**
+ * Known GIDs for Google Sheet tabs
+ */
+export const KNOWN_SHEET_GIDS: Record<string, string> = {
+  'octubre 2026': '224896792',
+  'noviembre 2026': '1625863501',
+  'diciembre 2026': '1407393528',
+  'enero 2027': '2013930199'
+};
+
+/**
+ * Returns Google Sheets URL directing straight to the tab corresponding to the reservation date
+ */
+export function getGoogleSheetUrlForDate(dateStr?: string | null): string {
+  const base = "https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit";
+  if (!dateStr) return base;
+  const targetSheetName = getTargetSheetNameForDate(dateStr);
+  if (targetSheetName) {
+    const key = targetSheetName.toLowerCase().trim();
+    const gid = KNOWN_SHEET_GIDS[key];
+    if (gid) {
+      return `${base}#gid=${gid}`;
+    }
+  }
+  return base;
+}
+
+/**
  * Gets configured Google Sheets Webhook URL (supports user custom URL in localStorage)
  */
 export function getGoogleSheetsWebhookUrl(): string {
@@ -173,80 +258,98 @@ export function getGoogleSheetsWebhookUrl(): string {
 }
 
 /**
+ * Tests connection to Google Sheets Webhook
+ */
+export async function testGoogleSheetsWebhook(customUrl?: string): Promise<{ success: boolean; message: string; sheet?: string }> {
+  const url = customUrl || getGoogleSheetsWebhookUrl();
+  const testPayload = {
+    test: true,
+    code: 'TEST_PROBE',
+    date: '19/01/2027',
+    serviceType: 'Llegada',
+    sheetName: 'enero 2027'
+  };
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(testPayload)
+    });
+    const text = await res.text();
+    let data: any = null;
+    try {
+      data = JSON.parse(text);
+    } catch {}
+    if (data && data.status === 'success') {
+      return {
+        success: true,
+        message: `✓ Conexión exitosa. El script está activo y enrutando a la hoja: ${data.sheet || 'enero 2027'}`,
+        sheet: data.sheet
+      };
+    }
+    return {
+      success: false,
+      message: `El Webhook respondió pero requiere nueva implementación como "Aplicación web" con "Quién tiene acceso: Cualquier usuario".`
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `Error conectando con el Webhook (${err.message || 'Verifica la URL'}). Asegúrate de implementar con acceso a cualquier usuario.`
+    };
+  }
+}
+
+/**
  * Recommended Apps Script code for Google Sheets that handles both INSERT and REWRITE (UPDATE in-place)
+ * and ALWAYS sorts rows chronologically (by Date and Time) into the correct month sheet.
  */
 export const APPS_SCRIPT_REWRITE_CODE = `/**
  * QUICK TRAVEL CANCÚN - WEBHOOK PARA GOOGLE SHEETS
- * Permite GUARDAR y REESCRIBIR reservaciones automáticamente por folio y servicio.
- * SELECCIONA AUTOMÁTICAMENTE LA HOJA DEL MES CORRESPONDIENTE (ej. "Noviembre 2026", "noviembre 2026").
- * DETECTA Y GUARDA AUTOMÁTICAMENTE EL CAMPO "REP" EN SU COLUMNA CORRESPONDIENTE.
+ * - ENRUTA AUTOMÁTICAMENTE A LA PESTAÑA DEL MES Y AÑO (ej. "enero 2027", "noviembre 2026", "octubre 2026").
+ * - SI LA HOJA NO EXISTE, LA CREA AUTOMÁTICAMENTE Y COPIA LOS ENCABEZADOS.
+ * - ORDENA AUTOMÁTICAMENTE TODAS LAS RESERVAS DE FORMA CRONOLÓGICA (POR FECHA Y HORA).
+ * - DETECTA AUTOMÁTICAMENTE LA FILA DE ENCABEZADOS (FILA 3 O 4) Y NUNCA ALTERA CELDAS COMBINADAS DEL TÍTULO.
+ * - REESCRIBE EN EL LUGAR EXACTO AL EDITAR UNA RESERVA POR FOLIO Y SERVICIO.
+ * - GUARDA AUTOMÁTICAMENTE EL CAMPO "REP" EN SU COLUMNA CORRESPONDIENTE.
  */
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "active",
+    app: "Quick Travel Cancun Webhook",
+    message: "Servicio webhook activo y listo para sincronizar reservas."
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
 function doPost(e) {
   try {
     var contents = e.postData.contents;
     var data = JSON.parse(contents);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
-    // 1. OBTENER LA HOJA DEL MES CORRECTO SEGÚN LA FECHA DE LA RESERVA (ej. 10-11-2026 -> Noviembre 2026)
+    // 1. OBTENER O CREAR LA HOJA DEL MES CORRECTO SEGÚN LA FECHA DE LA RESERVA (ej. 19/01/2027 -> "enero 2027")
     var sheet = getTargetMonthSheet(ss, data);
     
     var lastRow = sheet.getLastRow();
     var codeToFind = String(data.code || "").trim();
     var serviceToFind = String(data.serviceType || "").trim().toLowerCase();
     
-    // 2. DETECCIÓN DINÁMICA DE COLUMNAS (Folio, Fecha, ..., Chofer, Rep)
-    var totalCols = Math.max(sheet.getLastColumn(), 13);
-    var headers = [];
-    if (lastRow >= 1) {
-      headers = sheet.getRange(1, 1, 1, totalCols).getValues()[0] || [];
-    }
-    
-    var colMap = {
-      code: 1,
-      date: 2,
-      time: 3,
-      serviceType: 4,
-      origin: 5,
-      destination: 6,
-      pax: 7,
-      passenger: 8,
-      flight: 9,
-      amount: 10,
-      driver: 11,
-      rep: 12
-    };
-    
-    var repFoundInHeader = false;
-    for (var h = 0; h < headers.length; h++) {
-      var hText = String(headers[h] || "").trim().toLowerCase();
-      if (!hText) continue;
-      var cIdx = h + 1;
-      if (/^(folio|c[oó]digo|clave|id|orden)/i.test(hText)) colMap.code = cIdx;
-      else if (/^(fecha|date)/i.test(hText)) colMap.date = cIdx;
-      else if (/^(hora|time)/i.test(hText)) colMap.time = cIdx;
-      else if (/^(servicio|service)/i.test(hText)) colMap.serviceType = cIdx;
-      else if (/^(origen|pickup|origin)/i.test(hText)) colMap.origin = cIdx;
-      else if (/^(destino|dest|dropoff)/i.test(hText)) colMap.destination = cIdx;
-      else if (/^(pax|personas|pasajeros)/i.test(hText)) colMap.pax = cIdx;
-      else if (/^(pasajero|nombre|cliente|titular|guest)/i.test(hText)) colMap.passenger = cIdx;
-      else if (/^(vuelo|flight|habitaci[oó]n|room)/i.test(hText)) colMap.flight = cIdx;
-      else if (/^(balance|monto|cobro|saldo|precio|total|amount)/i.test(hText)) colMap.amount = cIdx;
-      else if (/^(chofer|conductor|operador|driver)/i.test(hText)) colMap.driver = cIdx;
-      else if (/^(rep|red|representante)/i.test(hText)) { colMap.rep = cIdx; repFoundInHeader = true; }
-      else if (!repFoundInHeader && /^(compa[ñn][ií]a|agencia|empresa)/i.test(hText)) { colMap.rep = cIdx; }
-    }
+    // 2. DETECCIÓN DINÁMICA DE ENCABEZADOS Y MAPEO DE COLUMNAS (soporta encabezados en fila 3, 4 o cualquier fila inicial)
+    var headerInfo = findSheetHeaderInfo(sheet);
+    var colMap = headerInfo.colMap;
+    var dataStartRow = headerInfo.dataStartRow;
+    var maxCol = headerInfo.maxCol;
+    var repFoundInHeader = headerInfo.repFoundInHeader;
     
     var repValue = String(data.rep || data.company || data.agency || "").trim();
     var driverValue = String(data.driver || "").trim();
     
-    // Buscar si el folio y tipo de servicio ya existen en la hoja para REESCRIBIR
+    // 3. BUSCAR SI EL FOLIO Y TIPO DE SERVICIO YA EXISTEN EN LAS FILAS DE DATOS PARA REESCRIBIR EN EL LUGAR EXACTO
     var rowToUpdate = -1;
     var values = [];
-    var maxCol = Math.max(totalCols, colMap.rep, colMap.driver, 13);
     
-    if (lastRow > 1 && codeToFind) {
-      var numRows = lastRow - 1;
-      values = sheet.getRange(2, 1, numRows, maxCol).getValues();
+    if (lastRow >= dataStartRow && codeToFind) {
+      var numDataRows = lastRow - dataStartRow + 1;
+      values = sheet.getRange(dataStartRow, 1, numDataRows, maxCol).getValues();
       var codeIdx = colMap.code - 1;
       var serviceIdx = colMap.serviceType - 1;
       
@@ -254,17 +357,16 @@ function doPost(e) {
         var existingCode = String(values[i][codeIdx] || "").trim();
         var existingService = String(values[i][serviceIdx] || "").trim().toLowerCase();
         
-        // Coincidencia exacta de folio y servicio (ej. Llegada con Llegada, Salida con Salida)
         if (existingCode === codeToFind) {
           if (!serviceToFind || existingService === serviceToFind || (serviceToFind !== 'llegada' && serviceToFind !== 'salida')) {
-            rowToUpdate = i + 2; // Fila real en la hoja
+            rowToUpdate = dataStartRow + i; // Fila real en la hoja
             break;
           }
         }
       }
     }
     
-    // Construir fila completa
+    // 4. CONSTRUIR FILA COMPLETA CON TODAS LAS COLUMNAS ALINEADAS
     var rowData = [];
     for (var c = 0; c < maxCol; c++) {
       rowData.push("");
@@ -283,34 +385,40 @@ function doPost(e) {
     rowData[colMap.driver - 1] = driverValue;
     rowData[colMap.rep - 1] = repValue;
     
-    // Si la hoja tiene 12 o 13 columnas y no se encontró header explícito, asegurar repValue en col 12 y col 13
     if (!repFoundInHeader) {
-      if (rowData.length >= 12) rowData[11] = repValue; // Columna L
-      if (rowData.length >= 13) rowData[12] = repValue; // Columna M
+      if (rowData.length >= 12 && !rowData[11]) rowData[11] = repValue;
+      if (rowData.length >= 13 && !rowData[12]) rowData[12] = repValue;
     }
     
+    var finalAction = "inserted";
+    var finalRow = sheet.getLastRow() + 1;
+    
     if (rowToUpdate > 0) {
-      // Preservar chofer existente si no se pasó uno nuevo
+      finalAction = "rewritten";
+      finalRow = rowToUpdate;
       var driverIdx = colMap.driver - 1;
-      if (!driverValue && values[rowToUpdate - 2] && values[rowToUpdate - 2][driverIdx]) {
-        rowData[driverIdx] = values[rowToUpdate - 2][driverIdx];
+      var existingRowOffset = rowToUpdate - dataStartRow;
+      if (!driverValue && values[existingRowOffset] && values[existingRowOffset][driverIdx]) {
+        rowData[driverIdx] = values[existingRowOffset][driverIdx];
       }
       sheet.getRange(rowToUpdate, 1, 1, rowData.length).setValues([rowData]);
-      return ContentService.createTextOutput(JSON.stringify({ 
-        status: "success", 
-        action: "rewritten", 
-        sheet: sheet.getName(),
-        row: rowToUpdate 
-      })).setMimeType(ContentService.MimeType.JSON);
     } else {
       sheet.appendRow(rowData);
-      return ContentService.createTextOutput(JSON.stringify({ 
-        status: "success", 
-        action: "inserted", 
-        sheet: sheet.getName(),
-        row: sheet.getLastRow() 
-      })).setMimeType(ContentService.MimeType.JSON);
     }
+    
+    // 5. ORDENAR SIEMPRE CRONOLÓGICAMENTE TODAS LAS FILAS DE DATOS POR FECHA Y HORA (COLUMNAS B Y C)
+    // Se ejecuta de forma segura solo sobre las filas de datos, sin tocar encabezados ni banners combinados
+    try {
+      sortSheetChronologically(sheet, colMap, dataStartRow);
+    } catch (sortErr) {}
+    
+    return ContentService.createTextOutput(JSON.stringify({ 
+      status: "success", 
+      action: finalAction, 
+      sheet: sheet.getName(),
+      row: finalRow,
+      sorted: true
+    })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -318,105 +426,349 @@ function doPost(e) {
 }
 
 /**
- * Busca y retorna la hoja del mes y año correspondiente según la fecha (ej. "noviembre 2026")
+ * Escanea dinámicamente las primeras filas de la hoja para ubicar los encabezados reales
+ * y determinar la fila exacta donde inician los datos, evitando banners de título o celdas combinadas.
  */
-function getTargetMonthSheet(ss, data) {
-  var allSheets = ss.getSheets();
-  if (!allSheets || allSheets.length === 0) return ss.getActiveSheet();
+function findSheetHeaderInfo(sheet) {
+  var lastRow = sheet.getLastRow();
+  var maxCol = Math.max(sheet.getLastColumn(), 14);
+  var scanRows = Math.min(Math.max(lastRow, 1), 10);
+  var headerValues = sheet.getRange(1, 1, scanRows, maxCol).getValues();
   
-  // 1. Si viene nombre explícito en data.sheetName
-  var explicitNames = [data.sheetName, data.targetSheet, data.sheet, data.sheetNameLower];
-  for (var e = 0; e < explicitNames.length; e++) {
-    if (!explicitNames[e]) continue;
-    var exp = String(explicitNames[e]).trim().toLowerCase();
-    for (var s = 0; s < allSheets.length; s++) {
-      if (allSheets[s].getName().trim().toLowerCase() === exp) {
-        return allSheets[s];
+  var headerRowIndex = 1;
+  var headers = [];
+  
+  for (var r = 0; r < headerValues.length; r++) {
+    var rowStr = headerValues[r].join(" ").toLowerCase();
+    if (rowStr.indexOf("fecha") !== -1 || rowStr.indexOf("sevicio") !== -1 || rowStr.indexOf("servicio") !== -1) {
+      headerRowIndex = r + 1;
+      headers = headerValues[r];
+      break;
+    }
+  }
+  
+  if (headers.length === 0 && headerValues.length > 0) {
+    headers = headerValues[0];
+  }
+  
+  var colMap = {
+    code: 1,
+    date: 2,
+    time: 3,
+    serviceType: 4,
+    origin: 5,
+    destination: 6,
+    pax: 7,
+    passenger: 8,
+    flight: 9,
+    amount: 10,
+    driver: 11,
+    rep: 12
+  };
+  
+  var repFoundInHeader = false;
+  for (var h = 0; h < headers.length; h++) {
+    var hText = String(headers[h] || "").trim().toLowerCase();
+    if (!hText) continue;
+    var cIdx = h + 1;
+    if (/^(folio|c[oó]digo|clave|id|orden|no\\s*s[eé]vicio)/i.test(hText)) colMap.code = cIdx;
+    else if (/^(fecha|date)/i.test(hText)) colMap.date = cIdx;
+    else if (/^(hora|time)/i.test(hText)) colMap.time = cIdx;
+    else if (/^(servicio|service)/i.test(hText) && colMap.code !== cIdx) colMap.serviceType = cIdx;
+    else if (/^(origen|pickup|origin)/i.test(hText)) colMap.origin = cIdx;
+    else if (/^(destino|dest|dropoff)/i.test(hText)) colMap.destination = cIdx;
+    else if (/^(pax|personas|pasajeros)/i.test(hText)) colMap.pax = cIdx;
+    else if (/^(pasajero|nombre|cliente|titular|guest)/i.test(hText)) colMap.passenger = cIdx;
+    else if (/^(vuelo|flight|habitaci[oó]n|room)/i.test(hText)) colMap.flight = cIdx;
+    else if (/^(balance|monto|cobro|saldo|precio|total|amount)/i.test(hText)) colMap.amount = cIdx;
+    else if (/^(chofer|conductor|operador|driver)/i.test(hText)) colMap.driver = cIdx;
+    else if (/^(rep|red|representante)/i.test(hText)) { colMap.rep = cIdx; repFoundInHeader = true; }
+    else if (!repFoundInHeader && /^(agencia|compa[ñn][ií]a|empresa)/i.test(hText)) { colMap.rep = cIdx; }
+  }
+  
+  // La fila donde inician los datos es la siguiente al encabezado (saltando filas vacías si las hay)
+  var dataStartRow = headerRowIndex + 1;
+  if (lastRow >= dataStartRow) {
+    var checkRows = sheet.getRange(dataStartRow, 1, Math.min(lastRow - dataStartRow + 1, 5), maxCol).getValues();
+    for (var i = 0; i < checkRows.length; i++) {
+      var isEmpty = true;
+      for (var j = 0; j < checkRows[i].length; j++) {
+        if (String(checkRows[i][j] || "").trim()) {
+          isEmpty = false;
+          break;
+        }
+      }
+      if (!isEmpty) {
+        dataStartRow = dataStartRow + i;
+        break;
       }
     }
   }
   
-  // 2. Extraer mes y año de data.date (ej: "10-11-2026" o "10/11/2026" o "2026-11-10")
-  var dStr = String(data.date || "").trim();
-  var monthNum = -1;
-  var yearNum = -1;
+  return {
+    headerRowIndex: headerRowIndex,
+    dataStartRow: dataStartRow,
+    colMap: colMap,
+    maxCol: Math.max(maxCol, colMap.rep, colMap.driver, 14),
+    repFoundInHeader: repFoundInHeader
+  };
+}
+
+/**
+ * Ordena cronológicamente todas las reservas de la hoja por Fecha (Col B) y Hora (Col C).
+ * Opera exclusivamente sobre las filas de datos (dataStartRow a lastRow), respetando
+ * íntegramente los encabezados y cualquier celda combinada del encabezado/título.
+ */
+function sortSheetChronologically(sheet, colMap, dataStartRow) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= dataStartRow) return;
   
-  var dmyMatch = dStr.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{4})/);
-  if (dmyMatch) {
-    monthNum = parseInt(dmyMatch[2], 10);
-    yearNum = parseInt(dmyMatch[3], 10);
-  } else {
-    var ymdMatch = dStr.match(/^(\\d{4})[\\/\\-](\\d{1,2})[\\/\\-](\\d{1,2})/);
-    if (ymdMatch) {
-      yearNum = parseInt(ymdMatch[1], 10);
-      monthNum = parseInt(ymdMatch[2], 10);
+  var maxCol = Math.max(sheet.getLastColumn(), 14);
+  var numRows = lastRow - dataStartRow + 1;
+  if (numRows <= 1) return;
+  
+  var range = sheet.getRange(dataStartRow, 1, numRows, maxCol);
+  var values = range.getValues();
+  
+  var spMonthLookup = {
+    "enero": 0, "ene": 0, "january": 0, "jan": 0,
+    "febrero": 1, "feb": 1, "february": 1,
+    "marzo": 2, "mar": 2, "march": 2,
+    "abril": 3, "abr": 3, "april": 3, "apr": 3,
+    "mayo": 4, "may": 4,
+    "junio": 5, "jun": 5, "june": 5,
+    "julio": 6, "jul": 6, "july": 6,
+    "agosto": 7, "ago": 7, "august": 7, "aug": 7,
+    "septiembre": 8, "sep": 8, "setiembre": 8, "sept": 8, "september": 8,
+    "octubre": 9, "oct": 9, "october": 9,
+    "noviembre": 10, "nov": 10, "november": 10,
+    "diciembre": 11, "dic": 11, "december": 11, "dec": 11
+  };
+  
+  function parseDateToTimestamp(val, timeVal) {
+    if (!val) return 0;
+    var d = 0, m = -1, y = 0;
+    
+    if (val instanceof Date) {
+      d = val.getDate();
+      m = val.getMonth();
+      y = val.getFullYear();
+    } else {
+      var str = String(val).trim();
+      if (!str) return 0;
+      
+      // 1. DD/MM/YYYY o D/M/YYYY o DD-MM-YYYY
+      var dmyMatch = str.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{4})/);
+      if (dmyMatch) {
+        d = parseInt(dmyMatch[1], 10);
+        m = parseInt(dmyMatch[2], 10) - 1;
+        y = parseInt(dmyMatch[3], 10);
+      } else {
+        // 2. YYYY-MM-DD
+        var ymdMatch = str.match(/^(\\d{4})[\\/\\-](\\d{1,2})[\\/\\-](\\d{1,2})/);
+        if (ymdMatch) {
+          y = parseInt(ymdMatch[1], 10);
+          m = parseInt(ymdMatch[2], 10) - 1;
+          d = parseInt(ymdMatch[3], 10);
+        } else {
+          // 3. Texto con mes en español (ej. "19 de enero del 2027", "19 enero 2027")
+          var lower = str.toLowerCase();
+          for (var mKey in spMonthLookup) {
+            if (lower.indexOf(mKey) !== -1) {
+              m = spMonthLookup[mKey];
+              var dayM = str.match(/\\b(\\d{1,2})\\b/);
+              var yrM = str.match(/\\b(202\\d|203\\d|\\d{4})\\b/);
+              if (dayM) d = parseInt(dayM[1], 10);
+              y = yrM ? parseInt(yrM[1], 10) : 2027;
+              break;
+            }
+          }
+        }
+      }
+    }
+    
+    if (y > 0 && m >= 0 && d > 0) {
+      var hours = 0, minutes = 0;
+      if (timeVal) {
+        var tMatch = String(timeVal).trim().match(/^(\\d{1,2}):(\\d{2})/);
+        if (tMatch) {
+          hours = parseInt(tMatch[1], 10);
+          minutes = parseInt(tMatch[2], 10);
+        }
+      }
+      return new Date(y, m, d, hours, minutes).getTime();
+    }
+    return 0;
+  }
+  
+  // Separar filas reales de datos de filas totalmente en blanco
+  var realDataRows = [];
+  for (var i = 0; i < values.length; i++) {
+    var hasContent = false;
+    for (var c = 0; c < values[i].length; c++) {
+      if (String(values[i][c] || "").trim()) {
+        hasContent = true;
+        break;
+      }
+    }
+    if (hasContent) {
+      realDataRows.push(values[i]);
     }
   }
+  
+  if (realDataRows.length <= 1) return;
+  
+  var dateIdx = colMap.date - 1;
+  var timeIdx = colMap.time - 1;
+  
+  realDataRows.sort(function(a, b) {
+    var tsA = parseDateToTimestamp(a[dateIdx], a[timeIdx]);
+    var tsB = parseDateToTimestamp(b[dateIdx], b[timeIdx]);
+    if (tsA !== tsB) {
+      if (tsA === 0) return 1;
+      if (tsB === 0) return -1;
+      return tsA - tsB; // Orden cronológico ascendente (más próximo primero)
+    }
+    var timeA = String(a[timeIdx] || "");
+    var timeB = String(b[timeIdx] || "");
+    return timeA.localeCompare(timeB);
+  });
+  
+  // Reconstruir matriz con las dimensiones exactas del rango
+  var sortedMatrix = [];
+  for (var r = 0; r < numRows; r++) {
+    if (r < realDataRows.length) {
+      sortedMatrix.push(realDataRows[r]);
+    } else {
+      var blank = [];
+      for (var col = 0; col < maxCol; col++) blank.push("");
+      sortedMatrix.push(blank);
+    }
+  }
+  
+  range.setValues(sortedMatrix);
+}
+
+/**
+ * Busca y retorna la hoja del mes y año correspondiente según la fecha (ej. "enero 2027", "noviembre 2026").
+ * Si la hoja no existe en el documento, LA CREA AUTOMÁTICAMENTE y copia los encabezados.
+ */
+function getTargetMonthSheet(ss, data) {
+  var allSheets = ss.getSheets();
+  if (!allSheets || allSheets.length === 0) return ss.getActiveSheet();
   
   var spanishMonths = [
     "enero", "febrero", "marzo", "abril", "mayo", "junio",
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
   ];
   
+  var targetName = "";
+  var explicitNames = [data.sheetName, data.targetSheet, data.sheet, data.sheetNameLower];
+  for (var e = 0; e < explicitNames.length; e++) {
+    if (explicitNames[e] && String(explicitNames[e]).trim()) {
+      targetName = String(explicitNames[e]).trim();
+      break;
+    }
+  }
+  
+  var monthNum = -1;
+  var yearNum = -1;
+  var dStr = String(data.date || "").trim();
+  
+  // 1. Extraer mes y año de targetName si viene especificado (ej. "enero 2027", "Enero 2027")
+  if (targetName) {
+    var tLower = targetName.toLowerCase();
+    for (var mIdx = 0; mIdx < spanishMonths.length; mIdx++) {
+      if (tLower.indexOf(spanishMonths[mIdx]) !== -1) {
+        monthNum = mIdx + 1;
+        var yM = targetName.match(/\\b(202\\d|203\\d|\\d{4})\\b/);
+        if (yM) yearNum = parseInt(yM[1], 10);
+        break;
+      }
+    }
+  }
+  
+  // 2. Extraer mes y año numérico de data.date (DD/MM/YYYY, YYYY-MM-DD o texto en español)
+  if (monthNum === -1 || yearNum === -1) {
+    var dmyMatch = dStr.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{4})/);
+    if (dmyMatch) {
+      monthNum = parseInt(dmyMatch[2], 10);
+      yearNum = parseInt(dmyMatch[3], 10);
+    } else {
+      var ymdMatch = dStr.match(/^(\\d{4})[\\/\\-](\\d{1,2})[\\/\\-](\\d{1,2})/);
+      if (ymdMatch) {
+        yearNum = parseInt(ymdMatch[1], 10);
+        monthNum = parseInt(ymdMatch[2], 10);
+      } else {
+        var searchStr = (dStr + " " + targetName).toLowerCase();
+        for (var mIdx = 0; mIdx < spanishMonths.length; mIdx++) {
+          if (searchStr.indexOf(spanishMonths[mIdx]) !== -1) {
+            monthNum = mIdx + 1;
+            var yrMatch = searchStr.match(/\\b(202\\d|203\\d|\\d{4})\\b/);
+            if (yrMatch) yearNum = parseInt(yrMatch[1], 10);
+            break;
+          }
+        }
+      }
+    }
+  }
+  
   if (monthNum >= 1 && monthNum <= 12) {
-    var mName = spanishMonths[monthNum - 1]; // ej: "noviembre"
-    var yStr = yearNum > 0 ? String(yearNum) : ""; // ej: "2026"
-    var mShort = mName.substring(0, 3); // ej: "nov"
+    var mName = spanishMonths[monthNum - 1]; // ej: "enero"
+    var yStr = yearNum > 0 ? String(yearNum) : ""; // ej: "2027"
+    var targetSheetName = yStr ? (mName + " " + yStr) : mName; // ej: "enero 2027"
     
-    // Coincidencia exacta: "noviembre 2026", "noviembre-2026", "noviembre_2026"
+    // 1. Buscar coincidencia exacta (case-insensitive)
     for (var s = 0; s < allSheets.length; s++) {
       var sName = allSheets[s].getName().trim().toLowerCase();
-      if (yStr && (sName === (mName + " " + yStr) || sName === (mName + "-" + yStr) || sName === (mName + "_" + yStr))) {
+      if (sName === targetSheetName || 
+          sName === (mName + "-" + yStr).trim() ||
+          sName === (mName + "_" + yStr).trim()) {
+        ss.setActiveSheet(allSheets[s]);
         return allSheets[s];
       }
     }
     
-    // Contiene mes y año
+    // 2. Buscar si contiene el mes y el año
     for (var s = 0; s < allSheets.length; s++) {
       var sName = allSheets[s].getName().trim().toLowerCase();
       if (sName.indexOf(mName) !== -1 && (yStr ? sName.indexOf(yStr) !== -1 : true)) {
+        ss.setActiveSheet(allSheets[s]);
         return allSheets[s];
       }
     }
     
-    // Coincidencia con nombre de mes solo ("noviembre")
-    for (var s = 0; s < allSheets.length; s++) {
-      var sName = allSheets[s].getName().trim().toLowerCase();
-      if (sName === mName) {
-        return allSheets[s];
-      }
-    }
-    
-    // Contiene nombre del mes
-    for (var s = 0; s < allSheets.length; s++) {
-      var sName = allSheets[s].getName().trim().toLowerCase();
-      if (sName.indexOf(mName) !== -1) {
-        return allSheets[s];
-      }
-    }
-    
-    // Contiene abreviación (ej: "nov 2026")
-    for (var s = 0; s < allSheets.length; s++) {
-      var sName = allSheets[s].getName().trim().toLowerCase();
-      if (sName.indexOf(mShort) !== -1 && (yStr ? sName.indexOf(yStr) !== -1 : true)) {
-        return allSheets[s];
-      }
-    }
-    
-    // Si no existe la pestaña, crearla con formato "Noviembre 2026" y copiar encabezados
+    // 3. Si no existe, crear la hoja automáticamente y copiar encabezados
     try {
-      var capM = mName.charAt(0).toUpperCase() + mName.slice(1);
-      var newName = yStr ? (capM + " " + yStr) : capM;
-      var newSheet = ss.insertSheet(newName);
-      if (allSheets[0]) {
-        var hRow = allSheets[0].getRange(1, 1, 1, Math.max(allSheets[0].getLastColumn(), 13)).getValues();
-        if (hRow && hRow[0]) {
-          newSheet.getRange(1, 1, 1, hRow[0].length).setValues(hRow);
+      var newSheet = ss.insertSheet(targetSheetName);
+      for (var s = 0; s < allSheets.length; s++) {
+        var srcSheet = allSheets[s];
+        var srcLastRow = srcSheet.getLastRow();
+        if (srcLastRow >= 4) {
+          var hCols = Math.max(srcSheet.getLastColumn(), 14);
+          var hRange = srcSheet.getRange(1, 1, 4, hCols);
+          hRange.copyTo(newSheet.getRange(1, 1));
+          break;
         }
       }
+      ss.setActiveSheet(newSheet);
       return newSheet;
-    } catch (e) {
-      // Ignorar error y usar fallback
+    } catch (createErr) {
+      for (var s = 0; s < allSheets.length; s++) {
+        if (allSheets[s].getName().trim().toLowerCase().indexOf(mName) !== -1) {
+          ss.setActiveSheet(allSheets[s]);
+          return allSheets[s];
+        }
+      }
+    }
+  }
+  
+  if (targetName) {
+    for (var s = 0; s < allSheets.length; s++) {
+      if (allSheets[s].getName().trim().toLowerCase() === targetName.toLowerCase()) {
+        ss.setActiveSheet(allSheets[s]);
+        return allSheets[s];
+      }
     }
   }
   
@@ -485,6 +837,100 @@ export function getReservationBalanceString(res: Reservation | any): string {
 }
 
 /**
+ * Retorna la fecha real del servicio según el tipo (Tour, Salida, Traslado, Circuito, Llegada)
+ */
+export function getReservationServiceDate(res: Reservation | any): string {
+  if (!res) return '';
+  const rawService = String(res.serviceType || '').toLowerCase().trim();
+
+  if (rawService.includes('tour') || rawService.includes('excursi')) {
+    return toMexicanDateFormat(
+      res.dateDeparture || 
+      res.tourDate || 
+      res.extraTours?.[0]?.dateDeparture || 
+      res.date
+    ) || '';
+  }
+
+  if (rawService.includes('salida') && !rawService.includes('llegada')) {
+    return toMexicanDateFormat(res.dateDeparture || res.date) || '';
+  }
+
+  if (rawService.includes('traslado')) {
+    return toMexicanDateFormat(res.dateDeparture || res.date) || '';
+  }
+
+  if (rawService.includes('circuito')) {
+    return toMexicanDateFormat(res.circuitoLegs?.[0]?.date || res.dateDeparture || res.dateArrival || res.date) || '';
+  }
+
+  if (rawService.includes('solo llegada')) {
+    return toMexicanDateFormat(res.dateArrival || res.date) || '';
+  }
+
+  // Por defecto (Llegada y Salida): fecha de llegada primero, luego fecha de salida o general
+  return toMexicanDateFormat(res.dateArrival || res.dateDeparture || res.date) || '';
+}
+
+/**
+ * Convierte fecha y hora mexicana a timestamp numérico para ordenamiento cronológico exacto
+ */
+export function parseMexicanDateToTimestamp(dateStr?: string | null, timeStr?: string | null): number {
+  if (!dateStr) return 0;
+  const mex = toMexicanDateFormat(dateStr);
+  const clean = mex || String(dateStr).trim();
+  let day = 0, month = 0, year = 0;
+
+  const dmyMatch = clean.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmyMatch) {
+    day = parseInt(dmyMatch[1], 10);
+    month = parseInt(dmyMatch[2], 10) - 1;
+    year = parseInt(dmyMatch[3], 10);
+  } else {
+    const ymdMatch = clean.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+    if (ymdMatch) {
+      year = parseInt(ymdMatch[1], 10);
+      month = parseInt(ymdMatch[2], 10) - 1;
+      day = parseInt(ymdMatch[3], 10);
+    }
+  }
+
+  if (year > 0 && day > 0) {
+    let hours = 0, minutes = 0;
+    if (timeStr) {
+      const tMatch = String(timeStr).trim().match(/^(\d{1,2}):(\d{2})/);
+      if (tMatch) {
+        hours = parseInt(tMatch[1], 10);
+        minutes = parseInt(tMatch[2], 10);
+      }
+    }
+    return new Date(year, month, day, hours, minutes).getTime();
+  }
+  return 0;
+}
+
+/**
+ * Ordena un arreglo de reservaciones cronológicamente por su fecha y hora real de servicio
+ */
+export function sortReservationsChronologically(reservationsList: Reservation[]): Reservation[] {
+  if (!Array.isArray(reservationsList) || reservationsList.length <= 1) return reservationsList || [];
+  return [...reservationsList].sort((a, b) => {
+    const dateA = getReservationServiceDate(a);
+    const dateB = getReservationServiceDate(b);
+    const timeA = a.departureTimeHotel || a.arrivalTime || a.time || '';
+    const timeB = b.departureTimeHotel || b.arrivalTime || b.time || '';
+    const tsA = parseMexicanDateToTimestamp(dateA, timeA);
+    const tsB = parseMexicanDateToTimestamp(dateB, timeB);
+    if (tsA !== tsB && tsA > 0 && tsB > 0) {
+      return tsA - tsB; // Más próximo primero
+    }
+    if (tsA > 0) return -1;
+    if (tsB > 0) return 1;
+    return (b.createdAt || '').localeCompare(a.createdAt || '');
+  });
+}
+
+/**
  * Extracts and constructs either 1 or 2 rows (for Round Trips / Llegada y Salida):
  * Row 1: Llegada
  * Row 2: Salida
@@ -520,7 +966,7 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
     const arrivalFlight = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ').trim() || res.flight || '';
     const arrivalOrigin = res.origin || 'Aeropuerto de Cancún';
     const arrivalDest = res.arrivalDestination || res.destination || res.originDeparture || 'Hotel / Destino';
-    const arrivalDate = toMexicanDateFormat(res.dateArrival || res.date || res.dateDeparture) || '';
+    const arrivalDate = toMexicanDateFormat(res.dateArrival || (!res.dateDeparture ? res.date : '')) || toMexicanDateFormat(res.dateDeparture) || '';
     const arrivalTime = res.arrivalTime || res.time || '';
     const arrivalPassenger = res.arrivalName || res.name || res.passenger || res.departureName || '';
     const arrivalPax = String(res.peopleCountArrival || res.peopleCount || res.pax || '1');
@@ -547,7 +993,7 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
       : (res.flight || '');
     const departureOrigin = res.originDeparture || res.arrivalDestination || res.destination || 'Hotel / Destino';
     const departureDest = res.departureDestination || 'Aeropuerto de Cancún';
-    const departureDate = toMexicanDateFormat(res.dateDeparture || res.date || res.dateArrival) || '';
+    const departureDate = toMexicanDateFormat(res.dateDeparture || (!res.dateArrival ? res.date : '')) || toMexicanDateFormat(res.dateArrival) || '';
     const departureTime = res.departureTimeHotel || (res.departureTimeFlight ? `Pickup: ${res.departureTimeFlight}` : '') || '';
     const departurePassenger = res.departureName || res.name || res.passenger || res.arrivalName || '';
     const departurePax = String(res.peopleCountDeparture || res.peopleCount || res.pax || '1');
@@ -571,37 +1017,67 @@ export function getReservationRows(res: Reservation | any): SheetsRowData[] {
     return [arrivalRow, departureRow];
   }
 
-  // Single Leg / Other Service
-  const flightInfo = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ').trim() ||
-    (res.departureTimeFlight ? `Vuelo ${res.departureTimeFlight}` : '') ||
-    (res.flight || '');
+  // Single Leg / Tour / Traslado / Circuito
+  const isTour = /tour/i.test(rawService) || /excursi/i.test(rawService);
+  const isSalida = /salida/i.test(rawService) && !/llegada/i.test(rawService);
+  const isTraslado = /traslado/i.test(rawService);
+  const isCircuito = /circuito/i.test(rawService);
 
-  const isArrival = /llegada/i.test(rawService);
-  const defaultOrigin = isArrival ? 'Aeropuerto de Cancún' : '';
-  const origin = res.origin || res.originDeparture || defaultOrigin;
-  const destination = res.destination || res.arrivalDestination || res.departureDestination || '';
+  let dateFormatted = '';
+  let timeFormatted = '';
+  let origin = '';
+  let destination = '';
+  let passengerName = '';
+  let paxValue = '';
+  let flightInfo = '';
+  let cleanServiceName = '';
 
-  const dateFormatted = toMexicanDateFormat(res.dateArrival || res.dateDeparture || res.date) || res.date || '';
-  const timeFormatted = res.time || res.arrivalTime || res.departureTimeHotel || '';
-  const passengerName = res.passenger || res.name || (isArrival ? res.arrivalName : res.departureName) || '';
-  const paxValue = res.pax !== undefined && res.pax !== null && res.pax !== ''
-    ? String(res.pax)
-    : (res.peopleCount ? String(res.peopleCount) : (isArrival ? String(res.peopleCountArrival || '1') : String(res.peopleCountDeparture || '1')));
-
-  // Clean Service Name: Never mix "Traslado Sencillo" unless it's genuinely a Traslado service
-  let cleanServiceName = 'Llegada';
-  if (/llegada/i.test(rawService)) {
-    cleanServiceName = 'Llegada';
-  } else if (/salida/i.test(rawService)) {
-    cleanServiceName = 'Salida';
-  } else if (/traslado/i.test(rawService)) {
-    cleanServiceName = res.transferSubtype ? `Traslado (${res.transferSubtype})` : 'Traslado';
-  } else if (/tour/i.test(rawService)) {
+  if (isTour) {
     cleanServiceName = res.tourName ? `Tour: ${res.tourName}` : 'Tour';
-  } else if (/circuito/i.test(rawService)) {
+    dateFormatted = toMexicanDateFormat(res.dateDeparture || res.tourDate || res.extraTours?.[0]?.dateDeparture || res.date) || '';
+    timeFormatted = res.departureTimeHotel || res.time || res.arrivalTime || '';
+    origin = res.originDeparture || res.origin || 'Hotel / Punto de Encuentro';
+    destination = res.tourName || res.destination || 'Tour';
+    passengerName = res.departureName || res.name || res.passenger || res.arrivalName || '';
+    paxValue = String(res.peopleCountDeparture || res.peopleCount || res.pax || '1');
+    flightInfo = res.tourType || res.flight || '';
+  } else if (isSalida) {
+    cleanServiceName = 'Salida';
+    dateFormatted = toMexicanDateFormat(res.dateDeparture || res.date) || '';
+    timeFormatted = res.departureTimeHotel || (res.departureTimeFlight ? `Pickup: ${res.departureTimeFlight}` : '') || res.time || '';
+    origin = res.originDeparture || res.arrivalDestination || res.destination || 'Hotel / Destino';
+    destination = res.departureDestination || 'Aeropuerto de Cancún';
+    passengerName = res.departureName || res.name || res.passenger || res.arrivalName || '';
+    paxValue = String(res.peopleCountDeparture || res.peopleCount || res.pax || '1');
+    flightInfo = res.departureTimeFlight ? (res.departureTimeFlight.toLowerCase().includes('vuelo') ? res.departureTimeFlight : `Vuelo ${res.departureTimeFlight}`) : (res.flight || '');
+  } else if (isTraslado) {
+    cleanServiceName = res.transferSubtype ? `Traslado (${res.transferSubtype})` : 'Traslado';
+    dateFormatted = toMexicanDateFormat(res.dateDeparture || res.date) || '';
+    timeFormatted = res.departureTimeHotel || res.time || '';
+    origin = res.originDeparture || res.origin || '';
+    destination = res.departureDestination || res.destination || '';
+    passengerName = res.departureName || res.name || res.passenger || res.arrivalName || '';
+    paxValue = String(res.peopleCountDeparture || res.peopleCount || res.pax || '1');
+    flightInfo = res.transferSubtype || res.flight || '';
+  } else if (isCircuito) {
     cleanServiceName = 'Circuito';
+    dateFormatted = toMexicanDateFormat(res.circuitoLegs?.[0]?.date || res.dateDeparture || res.dateArrival || res.date) || '';
+    timeFormatted = res.time || res.arrivalTime || '';
+    origin = res.origin || 'Cancún';
+    destination = res.destination || 'Circuito Península';
+    passengerName = res.arrivalName || res.departureName || res.name || res.passenger || '';
+    paxValue = String(res.peopleCountArrival || res.peopleCount || res.pax || '1');
+    flightInfo = 'Circuito';
   } else {
-    cleanServiceName = rawService || 'Llegada';
+    // Default Solo Llegada
+    cleanServiceName = 'Llegada';
+    dateFormatted = toMexicanDateFormat(res.dateArrival || res.date) || '';
+    timeFormatted = res.arrivalTime || res.time || '';
+    origin = res.origin || 'Aeropuerto de Cancún';
+    destination = res.arrivalDestination || res.destination || '';
+    passengerName = res.arrivalName || res.name || res.passenger || res.departureName || '';
+    paxValue = String(res.peopleCountArrival || res.peopleCount || res.pax || '1');
+    flightInfo = [res.airlineArrival, res.flightNoArrival].filter(Boolean).join(' ').trim() || res.flight || '';
   }
 
   const singleRow: SheetsRowData = {
@@ -649,11 +1125,12 @@ export function formatReservationToTSV(res: Reservation | any): string {
 }
 
 /**
- * Calculates expected Google Sheets tab name based on date (e.g. "10-11-2026" -> "Noviembre 2026")
+ * Calculates expected Google Sheets tab name based on date (e.g. "10-11-2026" -> "Noviembre 2026", "19 de enero del 2027" -> "Enero 2027")
  */
 export function getTargetSheetNameForDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
-  const clean = dateStr.trim();
+  const mex = toMexicanDateFormat(dateStr);
+  const clean = mex || String(dateStr).trim();
   let m = -1;
   let y = -1;
   const dmyMatch = clean.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
@@ -674,6 +1151,19 @@ export function getTargetSheetNameForDate(dateStr: string | null | undefined): s
   if (m >= 1 && m <= 12 && y > 0) {
     return `${months[m - 1]} ${y}`;
   }
+
+  // Fallback: check if text contains month name and 4-digit year (e.g. "enero" ... "2027")
+  const lower = clean.toLowerCase();
+  for (let idx = 0; idx < months.length; idx++) {
+    const mName = months[idx].toLowerCase();
+    if (lower.includes(mName)) {
+      const yearMatch = clean.match(/\b(202\d|203\d)\b/);
+      if (yearMatch) {
+        return `${months[idx]} ${yearMatch[1]}`;
+      }
+    }
+  }
+
   return '';
 }
 
