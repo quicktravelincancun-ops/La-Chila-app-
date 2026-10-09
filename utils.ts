@@ -1558,13 +1558,184 @@ export function getDriverDepartureWhatsAppUrl(res: Reservation, driverPhone?: st
 }
 
 /**
- * Legacy wrapper: generates Arrival or Departure message based on legType or serviceType
+ * Generates the clean WhatsApp text message for the driver for a CIRCUITO service:
+ * - Includes circuit route, dates, itinerary details, passenger and 1-line status links
  */
-export function generateDriverWhatsAppMessage(res: Reservation, legType?: 'arrival' | 'departure'): string {
+export function generateDriverCircuitoWhatsAppMessage(res: Reservation): string {
+  const passenger = res.departureName || res.arrivalName || res.name || 'Cliente';
+  const firstDate = res.circuitoLegs?.[0]?.date || res.dateDeparture || res.dateArrival || res.date || '';
+  const dateStr = toMexicanDateFormat(firstDate) || 'DD/MM/YYYY';
+
+  const origin = res.originDeparture || res.origin || 'Cancún';
+  const destination = res.destination || 'Circuito Península';
+  const pax = res.peopleCountDeparture || res.peopleCountArrival || res.peopleCount || 1;
+  const unitType = res.unitType || '1 a 8 personas';
+
+  let amountStr = '$0 MXN';
+  if (res.toPayUsd > 0) {
+    amountStr = `$${res.toPayUsd} USD`;
+  } else if (res.toPayMxn > 0) {
+    amountStr = `$${res.toPayMxn} MXN`;
+  } else if (res.depositUsd > 0) {
+    amountStr = `Pagado ($${res.depositUsd} USD)`;
+  } else if (res.depositMxn > 0) {
+    amountStr = `Pagado ($${res.depositMxn} MXN)`;
+  } else {
+    amountStr = 'Pagado';
+  }
+
+  const code = res.reservationNo || 'QTC';
+
+  let msg = `🚖 ORDEN DE SERVICIO (CIRCUITO) - QUICK TRAVEL CANCÚN\n`;
+  msg += `👤 Pasajero: ${passenger}\n`;
+  msg += `📅 Fecha Inicio: ${dateStr}\n`;
+  msg += `🚐 Unidad: ${unitType}\n`;
+  msg += `👥 Pasajeros: ${pax} PAX\n`;
+  msg += `📍 Punto de Partida: ${origin}\n`;
+  msg += `🏁 Destino / Ruta: ${destination}\n`;
+  msg += `💰 COBRO AL CLIENTE: ${amountStr}\n\n`;
+
+  if (res.circuitoLegs && res.circuitoLegs.length > 0) {
+    msg += `🗺️ *ITINERARIO DEL CIRCUITO:*\n`;
+    res.circuitoLegs.forEach((leg, i) => {
+      const legDate = toMexicanDateFormat(leg.date) || leg.date;
+      msg += `📌 *Día ${i + 1} (${legDate}):*\n`;
+      if (leg.schedule) msg += `   ⏰ Horario: ${leg.schedule}\n`;
+      if (leg.placesToVisit) msg += `   📍 Visita: ${leg.placesToVisit}\n`;
+      if (leg.observations) msg += `   📝 Notas: ${leg.observations}\n`;
+    });
+    msg += `\n`;
+  }
+
+  const baseUrl = getAppBaseUrl();
+  const passengerParam = passenger && passenger !== 'Cliente' ? `?p=${encodeURIComponent(passenger)}` : '';
+  const onboardCircuitoLink = `${baseUrl}/s/1/${encodeURIComponent(code + '-C')}${passengerParam}`;
+  const completedCircuitoLink = `${baseUrl}/s/2/${encodeURIComponent(code + '-C')}${passengerParam}`;
+
+  msg += `🔗 ESTATUS DEL SERVICIO:\n`;
+  msg += `1️⃣ Cliente a bordo: ${onboardCircuitoLink}\n`;
+  msg += `2️⃣ Servicio Finalizado: ${completedCircuitoLink}`;
+
+  return msg;
+}
+
+/**
+ * Generates the clean WhatsApp text message for the driver for a TOUR service
+ */
+export function generateDriverTourWhatsAppMessage(res: Reservation): string {
+  const passenger = res.departureName || res.name || 'Cliente';
+  const tourDate = res.tourDate || res.dateDeparture || res.date || '';
+  const dateStr = toMexicanDateFormat(tourDate) || 'DD/MM/YYYY';
+
+  const origin = res.originDeparture || res.origin || 'Hotel / Origen';
+  const tourName = res.tourName || 'Tour o Excursión';
+  const pax = res.peopleCountDeparture || res.peopleCount || 1;
+  const pickup = res.departureTimeHotel || res.time || 'Por confirmar';
+
+  let amountStr = '$0 MXN';
+  if (res.toPayUsd > 0) {
+    amountStr = `$${res.toPayUsd} USD`;
+  } else if (res.toPayMxn > 0) {
+    amountStr = `$${res.toPayMxn} MXN`;
+  } else if (res.depositUsd > 0) {
+    amountStr = `Pagado ($${res.depositUsd} USD)`;
+  } else if (res.depositMxn > 0) {
+    amountStr = `Pagado ($${res.depositMxn} MXN)`;
+  } else {
+    amountStr = 'Pagado';
+  }
+
+  const code = res.reservationNo || 'QTC';
+
+  let msg = `🚖 ORDEN DE SERVICIO (TOUR) - QUICK TRAVEL CANCÚN\n`;
+  msg += `👤 Pasajero: ${passenger}\n`;
+  msg += `🌟 Tour: ${tourName}${res.tourType ? ` (${res.tourType})` : ''}\n`;
+  msg += `📅 Fecha: ${dateStr}\n`;
+  msg += `⏰ Pick-up Hotel: ${pickup} hrs\n`;
+  msg += `📍 Origen: ${origin}\n`;
+  msg += `👥 Pasajeros: ${pax} PAX\n`;
+  msg += `💰 COBRO AL CLIENTE: ${amountStr}\n\n`;
+
+  const baseUrl = getAppBaseUrl();
+  const passengerParam = passenger && passenger !== 'Cliente' ? `?p=${encodeURIComponent(passenger)}` : '';
+  const onboardTourLink = `${baseUrl}/s/1/${encodeURIComponent(code + '-T')}${passengerParam}`;
+  const completedTourLink = `${baseUrl}/s/2/${encodeURIComponent(code + '-T')}${passengerParam}`;
+
+  msg += `🔗 ESTATUS DEL SERVICIO:\n`;
+  msg += `1️⃣ Cliente a bordo: ${onboardTourLink}\n`;
+  msg += `2️⃣ Servicio Finalizado: ${completedTourLink}`;
+
+  return msg;
+}
+
+/**
+ * Generates the clean WhatsApp text message for the driver for a TRANSFER service
+ */
+export function generateDriverTransferWhatsAppMessage(res: Reservation): string {
+  const passenger = res.departureName || res.name || 'Cliente';
+  const dateStr = toMexicanDateFormat(res.dateDeparture || res.date) || 'DD/MM/YYYY';
+
+  const origin = res.originDeparture || res.origin || 'Hotel / Origen';
+  const destination = res.departureDestination || res.destination || 'Destino';
+  const pax = res.peopleCountDeparture || res.peopleCount || 1;
+  const pickup = res.departureTimeHotel || res.time || 'Por confirmar';
+
+  let amountStr = '$0 MXN';
+  if (res.toPayUsd > 0) {
+    amountStr = `$${res.toPayUsd} USD`;
+  } else if (res.toPayMxn > 0) {
+    amountStr = `$${res.toPayMxn} MXN`;
+  } else if (res.depositUsd > 0) {
+    amountStr = `Pagado ($${res.depositUsd} USD)`;
+  } else if (res.depositMxn > 0) {
+    amountStr = `Pagado ($${res.depositMxn} MXN)`;
+  } else {
+    amountStr = 'Pagado';
+  }
+
+  const code = res.reservationNo || 'QTC';
+
+  let msg = `🚖 ORDEN DE SERVICIO (TRASLADO) - QUICK TRAVEL CANCÚN\n`;
+  msg += `👤 Pasajero: ${passenger}\n`;
+  msg += `📅 Fecha: ${dateStr}\n`;
+  msg += `⏰ Pick-up Hotel: ${pickup} hrs\n`;
+  msg += `📍 Origen: ${origin}\n`;
+  msg += `🏁 Destino: ${destination}\n`;
+  msg += `👥 Pasajeros: ${pax} PAX\n`;
+  msg += `💰 COBRO AL CLIENTE: ${amountStr}\n\n`;
+
+  const baseUrl = getAppBaseUrl();
+  const passengerParam = passenger && passenger !== 'Cliente' ? `?p=${encodeURIComponent(passenger)}` : '';
+  const onboardTransferLink = `${baseUrl}/s/1/${encodeURIComponent(code + '-TR')}${passengerParam}`;
+  const completedTransferLink = `${baseUrl}/s/2/${encodeURIComponent(code + '-TR')}${passengerParam}`;
+
+  msg += `🔗 ESTATUS DEL SERVICIO:\n`;
+  msg += `1️⃣ Cliente a bordo: ${onboardTransferLink}\n`;
+  msg += `2️⃣ Servicio Finalizado: ${completedTransferLink}`;
+
+  return msg;
+}
+
+/**
+ * Universal wrapper: generates message for driver according to specific service type
+ */
+export function generateDriverWhatsAppMessage(res: Reservation, legType?: 'arrival' | 'departure' | 'circuito' | 'tour' | 'transfer'): string {
   if (legType === 'arrival') return generateDriverArrivalWhatsAppMessage(res);
   if (legType === 'departure') return generateDriverDepartureWhatsAppMessage(res);
+  if (legType === 'circuito') return generateDriverCircuitoWhatsAppMessage(res);
+  if (legType === 'tour') return generateDriverTourWhatsAppMessage(res);
+  if (legType === 'transfer') return generateDriverTransferWhatsAppMessage(res);
 
-  if (res.serviceType === "Solo Salida" || res.serviceType === "Solo Traslado" || res.serviceType === "Tour o Excursión" || res.serviceType === "Circuito") {
+  if (res.serviceType === "Circuito") {
+    return generateDriverCircuitoWhatsAppMessage(res);
+  }
+  if (res.serviceType === "Tour o Excursión") {
+    return generateDriverTourWhatsAppMessage(res);
+  }
+  if (res.serviceType === "Solo Traslado") {
+    return generateDriverTransferWhatsAppMessage(res);
+  }
+  if (res.serviceType === "Solo Salida") {
     return generateDriverDepartureWhatsAppMessage(res);
   }
   return generateDriverArrivalWhatsAppMessage(res);
