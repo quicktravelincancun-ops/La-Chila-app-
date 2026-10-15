@@ -57,6 +57,25 @@ app.get([
 });
 
 async function startServer() {
+  const publicPath = path.join(process.cwd(), "public");
+  app.use(express.static(publicPath));
+
+  app.get("/favicon.ico", (_req, res) => {
+    res.setHeader("Content-Type", "image/x-icon");
+    res.sendFile(path.join(publicPath, "favicon.ico"));
+  });
+
+  app.get("/favicon.svg", (_req, res) => {
+    res.setHeader("Content-Type", "image/svg+xml");
+    res.sendFile(path.join(publicPath, "favicon.svg"));
+  });
+
+  app.get(["/favicon.png", "/apple-touch-icon.png", "/input_file_3.png"], (req, res) => {
+    const filename = req.path.replace(/^\//, "");
+    res.setHeader("Content-Type", "image/png");
+    res.sendFile(path.join(publicPath, filename));
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

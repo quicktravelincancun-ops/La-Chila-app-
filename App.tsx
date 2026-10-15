@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Reservation, TransferLeg, TourLeg, CircuitoLeg } from './types';
+import { Reservation, TransferLeg, TourLeg, CircuitoLeg, AgencySettings } from './types';
 import { CONTACTS, COMPANY_EMAIL, SHEET_NAME, Logo, TOUR_LIST } from './constants';
 import { 
   getWhatsAppLink, 
@@ -37,11 +37,14 @@ import {
 import { GoogleGenAI } from '@google/genai';
 import { extractReservationFieldsWithRegex, normalizeReservationData, getClientGeminiApiKey } from './geminiService';
 import VoucherPreview from './components/VoucherPreview';
+import { AgencySettingsView } from './components/AgencySettingsView';
+import { getStoredAgencySettings, applyFavicon } from './agencyService';
 
 const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1mKo7CYV3Wf1LmuuslP0DmV9UTUFvGvE1JKFQihqFLvE/edit?usp=drivesdk";
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'create' | 'history'>('create');
+  const [activeTab, setActiveTab] = useState<'create' | 'history' | 'agency'>('create');
+  const [agencySettings, setAgencySettings] = useState<AgencySettings>(getStoredAgencySettings());
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [currentVoucher, setCurrentVoucher] = useState<Reservation | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -255,6 +258,16 @@ const App: React.FC = () => {
       console.warn("Status link detection error:", e);
     }
   }, []);
+
+  // Update favicon and tab title when agencySettings changes
+  useEffect(() => {
+    if (agencySettings.faviconUrl) {
+      applyFavicon(agencySettings.faviconUrl);
+    }
+    if (agencySettings.agencyName) {
+      document.title = `${agencySettings.agencyName} - Sistema de Reservaciones`;
+    }
+  }, [agencySettings]);
 
   // Auto-save draft every 30 seconds while editing in 'create' tab
   useEffect(() => {
@@ -1294,6 +1307,7 @@ ${rawText}
                 reservation={showVoucherModal.reservation} 
                 pdfSingleTourIndex={pdfSingleTourIndex}
                 language={previewLanguage}
+                agencySettings={agencySettings}
               />
             </div>
 
@@ -1640,7 +1654,25 @@ ${rawText}
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         <header className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap justify-between items-center gap-3 z-50">
-          <Logo height="h-10 sm:h-12" />
+          <div className="flex items-center gap-3">
+            {agencySettings.logoUrl ? (
+              <img 
+                src={agencySettings.logoUrl} 
+                alt={agencySettings.agencyName || 'Logo'} 
+                className="h-9 sm:h-11 w-auto object-contain max-w-[180px]"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = '/input_file_3.png';
+                }}
+              />
+            ) : (
+              <Logo height="h-10 sm:h-12" />
+            )}
+            {agencySettings.agencyName && agencySettings.agencyName !== 'Quick Travel Cancún' && (
+              <span className="font-black text-xs text-[#0a305e] uppercase hidden md:inline-block tracking-tight bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                {agencySettings.agencyName}
+              </span>
+            )}
+          </div>
           <nav className="flex bg-gray-100 p-1 sm:p-1.5 rounded-2xl shrink-0">
             <button 
               type="button"
@@ -1658,6 +1690,15 @@ ${rawText}
               <span className="w-5 h-5 rounded-full bg-blue-100 text-[#0a305e] text-[9px] font-black flex items-center justify-center">
                 {reservations.length}
               </span>
+            </button>
+            <button 
+              type="button"
+              onClick={() => setActiveTab('agency')} 
+              className={`px-3.5 sm:px-6 py-2 sm:py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${activeTab === 'agency' ? 'bg-white text-[#0a305e] shadow-xs' : 'text-gray-400'}`}
+              title="Configuración de Agencia, Favicon, Logotipo y Teléfonos"
+            >
+              <i className="fas fa-building text-xs"></i>
+              <span>Agencia & Marca</span>
             </button>
           </nav>
         </header>
@@ -2262,6 +2303,7 @@ ${rawText}
                     reservation={currentVoucher} 
                     pdfSingleTourIndex={pdfSingleTourIndex}
                     language={previewLanguage}
+                    agencySettings={agencySettings}
                   />
                   <div className="flex justify-center flex-wrap gap-3 sm:gap-4 mt-8 px-4 max-w-2xl mx-auto no-print">
                     <button 
@@ -2285,7 +2327,7 @@ ${rawText}
                 </div>
               )}
             </div>
-          ) : (
+          ) : activeTab === 'history' ? (
             <div className="max-w-6xl mx-auto space-y-6">
               {/* Header and Search for Reservations */}
               <div className="bg-white p-5 sm:p-6 rounded-[28px] sm:rounded-[36px] shadow-xl border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -2738,6 +2780,12 @@ ${rawText}
                 </>
               )}
             </div>
+          ) : (
+            <AgencySettingsView
+              settings={agencySettings}
+              onUpdateSettings={(newSettings) => setAgencySettings(newSettings)}
+              showToast={(msg) => showUIMessage(msg)}
+            />
           )}
         </main>
       </div>

@@ -41,10 +41,13 @@ export const SHEET_NAME = 'beta arrivals quick';
 export const Logo = ({ className = "", height = "h-14" }: { className?: string, height?: string }) => (
   <div className={`flex items-center ${className}`}>
     <img 
-      src="/input_file_3.png" 
+      src="/favicon.svg" 
       alt="Quick Travel Cancun Logo" 
       className={`${height} w-auto object-contain`}
       referrerPolicy="no-referrer"
+      onError={(e) => {
+        (e.target as HTMLImageElement).src = '/favicon.png';
+      }}
     />
   </div>
 );

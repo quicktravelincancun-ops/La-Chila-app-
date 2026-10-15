@@ -2,6 +2,7 @@
 import { Reservation } from './types';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { getStoredAgencySettings } from './agencyService';
 
 export const SPANISH_MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -2334,6 +2335,8 @@ export const generateVoucherHTML = (
     ? [getDisplayTour(pdfSingleTourIndex!)]
     : [getDisplayTour(0), ...(reservation.extraTours?.map((_, i) => getDisplayTour(i + 1)) || [])];
 
+  const agency = getStoredAgencySettings();
+
   const renderDetailRow = (
     label: string, 
     value: string | number | undefined | null, 
@@ -2348,12 +2351,12 @@ export const generateVoucherHTML = (
       <div class="${colSpan > 1 ? `col-span-${colSpan}` : ''}">
         <span class="block text-[6px] text-gray-400 uppercase font-black tracking-widest mb-0.5">${label}</span>
         ${linkUrl ? `
-          <a href="${linkUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-600 font-black hover:text-blue-800 transition-colors flex items-center gap-1 ${size === 'large' ? 'text-base' : 'text-[10px]'}">
-            <span class="truncate">${displayVal}</span>
-            <i class="fas fa-map-marker-alt text-[7px] opacity-40"></i>
+          <a href="${linkUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-600 font-black hover:text-blue-800 transition-colors flex items-start gap-1 break-words leading-tight ${size === 'large' ? 'text-base' : 'text-[10px]'}">
+            <span class="break-words whitespace-normal">${displayVal}</span>
+            <i class="fas fa-map-marker-alt text-[7px] opacity-40 mt-0.5 shrink-0"></i>
           </a>
         ` : `
-          <span class="text-gray-900 font-black tracking-tight ${size === 'large' ? 'text-lg' : 'text-[10px]'} ${highlight ? 'text-[#f05a28]' : ''}">
+          <span class="text-gray-900 font-black tracking-tight break-words leading-tight block ${size === 'large' ? 'text-lg' : 'text-[10px]'} ${highlight ? 'text-[#f05a28]' : ''}">
             ${displayVal}
           </span>
         `}
@@ -2368,7 +2371,8 @@ export const generateVoucherHTML = (
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voucher_${esc(reservation.reservationNo)}</title>
+  <link rel="icon" type="image/svg+xml" href="${agency.faviconUrl || '/favicon.svg'}">
+  <link rel="alternate icon" href="/favicon.ico">
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -2446,8 +2450,8 @@ export const generateVoucherHTML = (
       
       <!-- Background Watermark -->
       <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-[0.018] pointer-events-none select-none rotate-[-35deg] z-0">
-        <div class="border-[15px] border-[#0a305e] text-[#0a305e] font-black text-[100px] p-16 rounded-[80px] uppercase tracking-tighter">
-          QUICK TRAVEL
+        <div class="border-[15px] border-[#0a305e] text-[#0a305e] font-black text-[70px] sm:text-[90px] p-12 sm:p-16 rounded-[80px] uppercase tracking-tighter text-center max-w-[700px] break-words">
+          ${esc(agency.agencyName || 'QUICK TRAVEL')}
         </div>
       </div>
 
@@ -2456,14 +2460,17 @@ export const generateVoucherHTML = (
         <div class="flex items-center gap-4">
           <div class="flex items-center">
             <img 
-              src="/input_file_3.png" 
-              alt="Quick Travel Cancun Logo" 
-              class="h-10 w-auto object-contain"
-              onerror="this.onerror=null;this.parentElement.innerHTML='<span class=\\'font-black text-[#0a305e] text-xl uppercase tracking-tighter\\'>QUICK TRAVEL CANCUN</span>';"
+              src="${agency.logoUrl || '/favicon.svg'}" 
+              alt="${esc(agency.agencyName || 'Logo')}" 
+              class="h-10 w-auto object-contain max-w-[170px]"
+              onerror="this.onerror=null;this.parentElement.innerHTML='<span class=\\'font-black text-[#0a305e] text-xl uppercase tracking-tighter\\'>${esc(agency.agencyName || 'QUICK TRAVEL')}</span>';"
             />
           </div>
           <div class="h-10 w-px bg-gray-200 mx-2"></div>
-          <h1 class="text-xl font-black text-[#0a305e] uppercase tracking-tighter leading-none">${t.title}</h1>
+          <div>
+            <h1 class="text-xl font-black text-[#0a305e] uppercase tracking-tighter leading-none">${t.title}</h1>
+            <p class="text-[8px] font-bold text-gray-500 uppercase tracking-widest mt-0.5">${esc(agency.agencyName || 'Quick Travel Cancún')}</p>
+          </div>
         </div>
         <div class="text-right">
           <p class="text-[7px] text-gray-400 uppercase font-black tracking-widest leading-none mb-1">${t.resNo}</p>
@@ -2524,8 +2531,8 @@ export const generateVoucherHTML = (
                 </div>
                 <div class="grid grid-cols-2 gap-y-2 gap-x-4 mt-3">
                   ${renderDetailRow(t.name, reservation.arrivalName, false, true, 'normal', 2)}
-                  ${renderDetailRow(t.meetingPoint, reservation.origin)}
-                  ${renderDetailRow(t.destination, reservation.arrivalDestination, true)}
+                  ${renderDetailRow(t.meetingPoint, reservation.origin, false, false, 'normal', 2)}
+                  ${renderDetailRow(t.destination, reservation.arrivalDestination, true, false, 'normal', 2)}
                   ${renderDetailRow(t.date, formatDateForLanguage(reservation.dateArrival, language))}
                   ${renderDetailRow(t.timeEst, reservation.arrivalTime)}
                   ${renderDetailRow(t.flight, `${reservation.airlineArrival || ''} ${reservation.flightNoArrival || ''}`.trim())}
@@ -2544,8 +2551,8 @@ export const generateVoucherHTML = (
                 </div>
                 <div class="grid grid-cols-2 gap-y-2 gap-x-4 mt-3">
                   ${renderDetailRow(t.name, reservation.departureName || reservation.name, false, true, 'normal', 2)}
-                  ${renderDetailRow(t.pickup, reservation.originDeparture, true)}
-                  ${renderDetailRow(t.to, reservation.departureDestination)}
+                  ${renderDetailRow(t.pickup, reservation.originDeparture, true, false, 'normal', 2)}
+                  ${renderDetailRow(t.to, reservation.departureDestination, false, false, 'normal', 2)}
                   ${renderDetailRow(t.date, formatDateForLanguage(reservation.dateDeparture, language))}
                   ${renderDetailRow(t.pickupHotel, reservation.departureTimeHotel, false, true)}
                   ${renderDetailRow(t.flightTime, reservation.departureTimeFlight)}
@@ -2564,7 +2571,7 @@ export const generateVoucherHTML = (
                 </div>
                 <div class="grid grid-cols-2 gap-y-2 gap-x-4 mt-3">
                   ${renderDetailRow(t.excursion, tour.name, false, true, 'normal', 2)}
-                  ${renderDetailRow(t.meetingPoint, tour.origin, true)}
+                  ${renderDetailRow(t.meetingPoint, tour.origin, true, false, 'normal', 2)}
                   ${renderDetailRow(t.pickup, tour.time, false, true)}
                   ${renderDetailRow(t.date, formatDateForLanguage(tour.date, language))}
                   ${renderDetailRow(t.type, tr(tour.type))}
@@ -2573,7 +2580,7 @@ export const generateVoucherHTML = (
                 ${tour.obs ? `
                   <div class="mt-2 bg-purple-50/20 p-2 rounded-lg border border-purple-100/50">
                     <span class="text-[6px] font-black uppercase text-purple-400">${t.tourNotes}:</span>
-                    <p class="text-[8px] text-slate-600 leading-tight">${esc(tour.obs)}</p>
+                    <p class="text-[8px] text-slate-600 leading-tight break-words">${esc(tour.obs)}</p>
                   </div>
                 ` : ''}
               </div>
@@ -2589,8 +2596,8 @@ export const generateVoucherHTML = (
                 </div>
                 <div class="grid grid-cols-2 gap-y-2 gap-x-4 mt-3">
                   ${renderDetailRow(t.name, reservation.departureName || reservation.name, false, true, 'normal', 2)}
-                  ${renderDetailRow(t.from, reservation.originDeparture, true)}
-                  ${renderDetailRow(t.until, reservation.departureDestination)}
+                  ${renderDetailRow(t.from, reservation.originDeparture, true, false, 'normal', 2)}
+                  ${renderDetailRow(t.until, reservation.departureDestination, false, false, 'normal', 2)}
                   ${renderDetailRow(t.date, formatDateForLanguage(reservation.dateDeparture, language))}
                   ${renderDetailRow(t.startTime, reservation.departureTimeHotel, false, true)}
                   ${renderDetailRow(t.returnTime, reservation.departureTimeFlight)}
@@ -2601,8 +2608,8 @@ export const generateVoucherHTML = (
                     ${reservation.extraLegs.map((leg, i) => `
                       <div class="grid grid-cols-2 gap-x-2 gap-y-1 text-[9px] bg-slate-50/50 p-2 rounded-lg">
                         <span class="font-bold uppercase text-gray-400 col-span-2 text-[7px]">${t.extraLeg} #${i+1}</span>
-                        ${renderDetailRow(t.from, leg.origin)}
-                        ${renderDetailRow(t.until, leg.destination)}
+                        ${renderDetailRow(t.from, leg.origin, false, false, 'normal', 2)}
+                        ${renderDetailRow(t.until, leg.destination, false, false, 'normal', 2)}
                         ${renderDetailRow(t.startTime, leg.startTime)}
                         ${renderDetailRow(t.pax, leg.pax)}
                       </div>
@@ -2748,11 +2755,15 @@ export const generateVoucherHTML = (
       </div>
 
       <!-- Footer -->
-      <div class="mt-6 pt-3 border-t border-gray-100 flex justify-between items-center relative z-10">
-        <div class="flex items-center gap-3 text-[7px] text-gray-400 font-black uppercase tracking-[0.15em]">
-          <span>© Quick Travel Cancun</span>
+      <div class="mt-6 pt-3 border-t border-gray-100 flex flex-wrap justify-between items-center gap-2 relative z-10">
+        <div class="flex flex-wrap items-center gap-2 text-[7px] text-gray-400 font-black uppercase tracking-[0.12em]">
+          <span>© ${esc(agency.agencyName || 'Quick Travel Cancun')}</span>
           <span class="w-0.5 h-0.5 bg-gray-200 rounded-full"></span>
-          <span>${t.support}: quicktravelincancun@gmail.com</span>
+          <span>${t.support}: ${esc(agency.email || 'quicktravelincancun@gmail.com')}</span>
+          ${agency.phoneNumber ? `
+            <span class="w-0.5 h-0.5 bg-gray-200 rounded-full"></span>
+            <span>Tel: ${esc(agency.phoneNumber)}</span>
+          ` : ''}
         </div>
         <div class="text-[7px] text-[#0a305e] font-black uppercase tracking-[0.15em]">
           ${t.system}

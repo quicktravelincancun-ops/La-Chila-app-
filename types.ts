@@ -94,3 +94,14 @@ export interface ContactInfo {
   label: string;
   number: string;
 }
+
+export interface AgencySettings {
+  agencyName: string;
+  faviconUrl: string;
+  logoUrl: string;
+  phoneNumber: string;
+  phoneDispatch: string;
+  email: string;
+  website?: string;
+  slogan?: string;
+}

@@ -1,8 +1,9 @@
 
 import React from 'react';
-import { Reservation, TourLeg } from '../types';
+import { Reservation, TourLeg, AgencySettings } from '../types';
 import { Logo } from '../constants';
 import { getGoogleMapsLink, formatDateForLanguage } from '../utils';
+import { getStoredAgencySettings } from '../agencyService';
 
 export type Language = 'es' | 'en';
 
@@ -11,6 +12,7 @@ interface VoucherPreviewProps {
   pdfSingleTourIndex?: number | null; // null = show all, 0 = primary tour, 1+ = extra tours
   language?: Language;
   id?: string;
+  agencySettings?: AgencySettings;
 }
 
 const TRANSLATIONS = {
@@ -140,7 +142,14 @@ const VALUE_MAP: Record<string, string> = {
   "Tour Privado": "Private Tour"
 };
 
-const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleTourIndex = null, language = 'es', id = 'voucher-to-print' }) => {
+const VoucherPreview: React.FC<VoucherPreviewProps> = ({ 
+  reservation, 
+  pdfSingleTourIndex = null, 
+  language = 'es', 
+  id = 'voucher-to-print',
+  agencySettings
+}) => {
+  const agency = agencySettings || getStoredAgencySettings();
   const lang: 'es' | 'en' = language === 'en' ? 'en' : 'es';
   const isPdfMode = pdfSingleTourIndex !== null;
   const showArrival = !isPdfMode && (reservation.serviceType === "Llegada y Salida" || reservation.serviceType === "Solo Llegada");
@@ -193,17 +202,31 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
       
       {/* Background Watermark */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-[0.015] pointer-events-none select-none rotate-[-35deg] z-0">
-        <div className="border-[15px] border-[#0a305e] text-[#0a305e] font-black text-[100px] p-16 rounded-[80px] uppercase tracking-tighter">
-          QUICK TRAVEL
+        <div className="border-[15px] border-[#0a305e] text-[#0a305e] font-black text-[70px] sm:text-[90px] p-12 sm:p-16 rounded-[80px] uppercase tracking-tighter text-center max-w-[700px] break-words">
+          {agency.agencyName || 'QUICK TRAVEL'}
         </div>
       </div>
 
       {/* 1. Header Section */}
       <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-100 relative z-10">
-        <div className="flex items-center gap-4">
-          <Logo height="h-10" />
-          <div className="h-10 w-px bg-gray-200 mx-2"></div>
-          <h1 className="text-xl font-black text-[#0a305e] uppercase tracking-tighter leading-none">{t.title}</h1>
+        <div className="flex items-center gap-3 sm:gap-4">
+          {agency.logoUrl ? (
+            <img 
+              src={agency.logoUrl} 
+              alt={agency.agencyName || 'Logo'} 
+              className="h-9 sm:h-11 max-w-[150px] sm:max-w-[190px] object-contain"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = '/favicon.svg';
+              }}
+            />
+          ) : (
+            <Logo height="h-10" />
+          )}
+          <div className="h-10 w-px bg-gray-200 mx-1 sm:mx-2"></div>
+          <div>
+            <h1 className="text-lg sm:text-xl font-black text-[#0a305e] uppercase tracking-tighter leading-none">{t.title}</h1>
+            <p className="text-[8px] font-bold text-gray-500 uppercase tracking-widest mt-0.5">{agency.agencyName || 'Quick Travel Cancún'}</p>
+          </div>
         </div>
         <div className="text-right">
           <p className="text-[7px] text-gray-400 uppercase font-black tracking-widest leading-none mb-1">{t.resNo}</p>
@@ -246,8 +269,8 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
                 <SectionHeader label={t.arrivalLeg} icon="fa-plane-arrival" color="green" />
                 <div className="grid grid-cols-2 gap-y-2 gap-x-4 mt-3">
                   <DetailRow label={t.name} value={reservation.arrivalName} className="col-span-2" highlight />
-                  <DetailRow label={t.meetingPoint} value={reservation.origin} />
-                  <DetailRow label={t.destination} value={reservation.arrivalDestination} isLink />
+                  <DetailRow label={t.meetingPoint} value={reservation.origin} className="col-span-2" />
+                  <DetailRow label={t.destination} value={reservation.arrivalDestination} isLink className="col-span-2" />
                   <DetailRow label={t.date} value={formatDateForLanguage(reservation.dateArrival, lang)} />
                   <DetailRow label={t.timeEst} value={reservation.arrivalTime} />
                   <DetailRow label={t.flight} value={`${reservation.airlineArrival} ${reservation.flightNoArrival}`} />
@@ -261,8 +284,8 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
                 <SectionHeader label={t.departureLeg} icon="fa-plane-departure" color="orange" />
                 <div className="grid grid-cols-2 gap-y-2 gap-x-4 mt-3">
                   <DetailRow label={t.name} value={reservation.departureName || reservation.name} className="col-span-2" highlight />
-                  <DetailRow label={t.pickup} value={reservation.originDeparture} isLink />
-                  <DetailRow label={t.to} value={reservation.departureDestination} />
+                  <DetailRow label={t.pickup} value={reservation.originDeparture} isLink className="col-span-2" />
+                  <DetailRow label={t.to} value={reservation.departureDestination} className="col-span-2" />
                   <DetailRow label={t.date} value={formatDateForLanguage(reservation.dateDeparture, lang)} />
                   <DetailRow label={t.pickupHotel} value={reservation.departureTimeHotel} className="text-[#f05a28]" highlight />
                   <DetailRow label={t.flightTime} value={reservation.departureTimeFlight} />
@@ -276,7 +299,7 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
                 <SectionHeader label={toursToRender.length > 1 ? `Tour ${idx + 1}` : t.tourLeg} icon="fa-mountain" color="purple" />
                 <div className="grid grid-cols-2 gap-y-2 gap-x-4 mt-3">
                   <DetailRow label={t.excursion} value={tour.name || '---'} highlight className="col-span-2" />
-                  <DetailRow label={t.meetingPoint} value={tour.origin} isLink />
+                  <DetailRow label={t.meetingPoint} value={tour.origin} isLink className="col-span-2" />
                   <DetailRow label={t.pickup} value={tour.time} className="text-purple-700 font-black" highlight />
                   <DetailRow label={t.date} value={formatDateForLanguage(tour.date, lang)} />
                   <DetailRow label={t.type} value={tr(tour.type)} />
@@ -285,7 +308,7 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
                 {tour.obs && (
                    <div className="mt-2 bg-purple-50/20 p-2 rounded-lg border border-purple-100/50">
                       <span className="text-[6px] font-black uppercase text-purple-400">{t.tourNotes}:</span>
-                      <p className="text-[8px] text-slate-600 leading-tight">{tour.obs}</p>
+                      <p className="text-[8px] text-slate-600 leading-tight break-words">{tour.obs}</p>
                    </div>
                 )}
               </div>
@@ -296,8 +319,8 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
                 <SectionHeader label={t.transferLeg} icon="fa-exchange-alt" color="blue" />
                 <div className="grid grid-cols-2 gap-y-2 gap-x-4 mt-3">
                   <DetailRow label={t.name} value={reservation.departureName || reservation.name} className="col-span-2" highlight />
-                  <DetailRow label={t.from} value={reservation.originDeparture} isLink />
-                  <DetailRow label={t.until} value={reservation.departureDestination} />
+                  <DetailRow label={t.from} value={reservation.originDeparture} isLink className="col-span-2" />
+                  <DetailRow label={t.until} value={reservation.departureDestination} className="col-span-2" />
                   <DetailRow label={t.date} value={formatDateForLanguage(reservation.dateDeparture, lang)} />
                   <DetailRow label={t.startTime} value={reservation.departureTimeHotel} className="text-blue-700 font-black" highlight />
                   <DetailRow label={t.returnTime} value={reservation.departureTimeFlight} />
@@ -308,8 +331,8 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
                      {reservation.extraLegs.map((leg, i) => (
                        <div key={leg.id} className="grid grid-cols-2 gap-x-2 gap-y-1 text-[9px] bg-slate-50/50 p-2 rounded-lg">
                          <span className="font-bold uppercase text-gray-400 col-span-2 text-[7px]">{t.extraLeg} #{i+1}</span>
-                         <DetailRow label={t.from} value={leg.origin} />
-                         <DetailRow label={t.until} value={leg.destination} />
+                         <DetailRow label={t.from} value={leg.origin} className="col-span-2" />
+                         <DetailRow label={t.until} value={leg.destination} className="col-span-2" />
                          <DetailRow label={t.startTime} value={leg.startTime} />
                          <DetailRow label={t.pax} value={leg.pax} />
                        </div>
@@ -431,11 +454,17 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
       </div>
 
       {/* Footer */}
-      <div className="mt-6 pt-3 border-t border-gray-100 flex justify-between items-center relative z-10">
-        <div className="flex items-center gap-3 text-[7px] text-gray-400 font-black uppercase tracking-[0.15em]">
-          <span>© Quick Travel Cancun</span>
+      <div className="mt-6 pt-3 border-t border-gray-100 flex flex-wrap justify-between items-center gap-2 relative z-10">
+        <div className="flex flex-wrap items-center gap-2 text-[7px] text-gray-400 font-black uppercase tracking-[0.12em]">
+          <span>© {agency.agencyName || 'Quick Travel Cancun'}</span>
           <span className="w-0.5 h-0.5 bg-gray-200 rounded-full"></span>
-          <span>{t.support}: quicktravelincancun@gmail.com</span>
+          <span>{t.support}: {agency.email || 'quicktravelincancun@gmail.com'}</span>
+          {agency.phoneNumber && (
+            <>
+              <span className="w-0.5 h-0.5 bg-gray-200 rounded-full"></span>
+              <span>Tel: {agency.phoneNumber}</span>
+            </>
+          )}
         </div>
         <div className="text-[7px] text-[#0a305e] font-black uppercase tracking-[0.15em]">
           {t.system}
@@ -445,19 +474,26 @@ const VoucherPreview: React.FC<VoucherPreviewProps> = ({ reservation, pdfSingleT
   );
 };
 
-const DetailRow: React.FC<{ label: string; value: string | number | undefined | null; isLink?: boolean; className?: string; size?: 'normal' | 'large'; highlight?: boolean }> = ({ label, value, isLink, className, size = 'normal', highlight = false }) => {
+const DetailRow: React.FC<{ 
+  label: string; 
+  value: string | number | undefined | null; 
+  isLink?: boolean; 
+  className?: string; 
+  size?: 'normal' | 'large'; 
+  highlight?: boolean 
+}> = ({ label, value, isLink, className = '', size = 'normal', highlight = false }) => {
   const displayValue = (value !== undefined && value !== null && value !== '') ? value : '---';
   
   return (
     <div className={className}>
       <span className="block text-[6px] text-gray-400 uppercase font-black tracking-widest mb-0.5">{label}</span>
       {isLink && displayValue !== '---' ? (
-        <span className={`text-blue-700 font-black flex items-center gap-1 ${size === 'large' ? 'text-base' : 'text-[10px]'}`}>
-          <span className="truncate">{displayValue}</span>
-          <i className="fas fa-map-marker-alt text-[7px] text-blue-500 opacity-60"></i>
+        <span className={`text-blue-700 font-black flex items-start gap-1 break-words leading-tight ${size === 'large' ? 'text-base' : 'text-[10px]'}`}>
+          <span className="break-words whitespace-normal">{displayValue}</span>
+          <i className="fas fa-map-marker-alt text-[7px] text-blue-500 opacity-60 mt-0.5 shrink-0"></i>
         </span>
       ) : (
-        <span className={`text-gray-900 font-black tracking-tight ${size === 'large' ? 'text-lg' : 'text-[10px]'} ${highlight ? 'text-[#f05a28]' : ''}`}>
+        <span className={`text-gray-900 font-black tracking-tight break-words leading-tight block ${size === 'large' ? 'text-lg' : 'text-[10px]'} ${highlight ? 'text-[#f05a28]' : ''}`}>
           {displayValue}
         </span>
       )}
